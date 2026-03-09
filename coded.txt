@@ -20,6 +20,7 @@ BOOT_BIN := $(BUILD)/boot.bin
 ENTRY_OBJ := $(BUILD)/kernel_entry.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 VGA_OBJ := $(BUILD)/vga.o
+KEYBOARD_OBJ := $(BUILD)/keyboard.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -28,9 +29,11 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(KEYBOARD_OBJ): kernel/keyboard.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(ENTRY_OBJ): $(ENTRY_SRC) | $(BUILD)
 	$(ASM) $(ASMFLAGS) $< -o $@
@@ -122,6 +125,15 @@ BOOT_DRIVE db 0
 times 510-($-$$) db 0
 dw 0xAA55
 
+--- include/keyboard.h ---
+#ifndef KEYBOARD_H
+#define KEYBOARD_H
+#define KEYBOARD_DATA_PORT 0x60 // returns scancode
+#define KEYBOARD_STATUS_PORT 0x64 // returns 0=not ready, 1=ready
+void keyboard_init();
+char keyboard_poll();
+#endif
+
 --- include/vga.h ---
 #ifndef VGA_H
 #define VGA_H
@@ -135,12 +147,17 @@ void vga_print(const char *str);
 
 --- kernel/kernel.c ---
 #include "vga.h"
+#include "keyboard.h"
 void kernel_main() {
     vga_clear();
     vga_print("Atlas OS\n");
     vga_print("Hello!!\n");
-    while (1)
-        ;
+    keyboard_init();
+    while (1) {
+        char c = keyboard_poll();
+        if (c != 0)
+            vga_putchar(c);
+    }
 }
 
 --- kernel/kernel_entry.asm ---
@@ -150,6 +167,34 @@ extern kernel_main
 call_kernel:
     call kernel_main
     jmp $
+
+--- kernel/keyboard.c ---
+#include "keyboard.h"
+#include "vga.h"
+static char scancode_map[128] = {
+    0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 0,
+    0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', 0,
+    0,'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
+    'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0,0, 0, ' ',
+};
+static inline unsigned char inb(unsigned short port) {
+    unsigned char val;
+    __asm__ volatile ("inb %1, %0" : "=a"(val) : "Nd"(port));
+    return val;
+}
+void keyboard_init() {
+    while (inb(0x64) & 0x01)
+        inb(0x60);
+}
+char keyboard_poll() {
+    if (!(inb(0x64) & 0x01))
+        return 0;
+    unsigned char scancode = inb(0x60);
+    // ignore key release events
+    if (scancode & 0x80)
+        return 0;
+    return scancode_map[scancode];
+}
 
 --- kernel/vga.c ---
 #include "vga.h"

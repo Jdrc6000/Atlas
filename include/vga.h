@@ -8,5 +8,6 @@
 void vga_clear();
 void vga_putchar(char c);
 void vga_print(const char *str);
+void set_cursor(int row, int column);
 
 #endif
