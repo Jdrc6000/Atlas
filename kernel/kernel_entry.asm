@@ -1,5 +1,6 @@
 [bits 32]
 
+global call_kernel
 extern kernel_main
 
 call_kernel:

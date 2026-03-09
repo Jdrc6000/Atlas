@@ -15,6 +15,7 @@ KERNEL_C := kernel/kernel.c
 BOOT_BIN := $(BUILD)/boot.bin
 ENTRY_OBJ := $(BUILD)/kernel_entry.o
 KERNEL_OBJ := $(BUILD)/kernel.o
+VGA_OBJ := $(BUILD)/vga.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 
@@ -27,8 +28,11 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
+
+$(VGA_OBJ): kernel/vga.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(ENTRY_OBJ): $(ENTRY_SRC) | $(BUILD)
 	$(ASM) $(ASMFLAGS) $< -o $@
