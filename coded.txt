@@ -19,6 +19,7 @@ KERNEL_C := kernel/kernel.c
 BOOT_BIN := $(BUILD)/boot.bin
 ENTRY_OBJ := $(BUILD)/kernel_entry.o
 KERNEL_OBJ := $(BUILD)/kernel.o
+VGA_OBJ := $(BUILD)/vga.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
