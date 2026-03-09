@@ -71,7 +71,7 @@ start:
 ; BX / memory address buffer
 load_kernel:
     mov bx, KERNEL_OFFSET
-    mov dh, 2  ; number of sectors to load
+    mov dh, 15  ; number of sectors to load
     mov dl, [BOOT_DRIVE]
     mov ah, 0x02
     mov al, dh
@@ -143,6 +143,7 @@ char keyboard_poll();
 void vga_clear();
 void vga_putchar(char c);
 void vga_print(const char *str);
+void set_cursor(int row, int column);
 #endif
 
 --- kernel/kernel.c ---
@@ -172,11 +173,19 @@ call_kernel:
 #include "keyboard.h"
 #include "vga.h"
 static char scancode_map[128] = {
-    0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 0,
+    0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
     0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', 0,
     0,'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
     'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0,0, 0, ' ',
 };
+static char scancode_map_shifted[128] = {
+    0, 0, '!', '@', '#', '$', '%', '^', '&', '*', '(' ,')' ,'_', '+', '\b',
+    0, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '{', '}', 0,
+    0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ':', '"', '~', 0, '|',
+    'z', 'x', 'c', 'v', 'b', 'n', 'm', '<', '>', '?', 0, 0, 0, ' ',
+};
+static int shift_held = 0;
+static int caps_lock_on = 0;
 static inline unsigned char inb(unsigned short port) {
     unsigned char val;
     __asm__ volatile ("inb %1, %0" : "=a"(val) : "Nd"(port));
@@ -190,16 +199,45 @@ char keyboard_poll() {
     if (!(inb(0x64) & 0x01))
         return 0;
     unsigned char scancode = inb(0x60);
-    // ignore key release events
-    if (scancode & 0x80)
+    int released = scancode & 0x08;
+    unsigned char key = scancode & 0x7F; // strip release bit
+    if (key == 0x2A || key == 0x36) {
+        shift_held = !released;
         return 0;
-    return scancode_map[scancode];
+    }
+    if (key == 0x3A) {
+        if (!released)
+            caps_lock_on = !caps_lock_on;
+        return 0;
+    }
+    if (!released)
+        return 0;
+    char base = scancode_map[key];
+    if (base == 0)
+        return 0;
+    int is_letter = (base >= 'a' && base <= 'z');
+    if (is_letter) {
+        int uppercase = caps_lock_on ^ shift_held;
+        return uppercase ? (base - 'a' + 'A') : base;
+    } else {
+        return shift_held ? scancode_map_shifted[key] : base;
+    }
 }
 
 --- kernel/vga.c ---
 #include "vga.h"
 static int cursor_col = 0;
 static int cursor_row = 0;
+static inline void outb(unsigned short port, unsigned char val) {
+    __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+void vga_set_cursor(int row, int col) {
+    unsigned short pos = row * VGA_COLS + col;
+    outb(0x3D4, 0x0F);
+    outb(0x3D5, (unsigned char)(pos & 0xFF));
+    outb(0x3D4, 0x0E);
+    outb(0x3D5, (unsigned char)((pos >> 8) & 0xFF));
+}
 void vga_clear() {
     char *video = (char *)VGA_ADDRESS;
     for (int i = 0; i < VGA_COLS * VGA_ROWS * 2; i += 2) {
@@ -208,19 +246,39 @@ void vga_clear() {
     }
     cursor_col = 0;
     cursor_row = 0;
+    vga_set_cursor(0, 0);
 }
 void vga_putchar(char c) {
     char *video = (char *)VGA_ADDRESS;
     if (c == '\n') {
         cursor_col = 0;
         cursor_row++;
+        vga_set_cursor(cursor_row, cursor_col);
         return;
     }
-    if (cursor_col >= VGA_COLS) return;
-    int offset = (cursor_row * VGA_ROWS + cursor_col) * 2;
+    if (c == '\b') {
+        if (cursor_col > 0) {
+            cursor_col--;
+        } else if (cursor_row > 0) {
+            cursor_row--;
+            cursor_col = VGA_COLS - 1;
+        }
+        char *video = (char *)VGA_ADDRESS;
+        int offset = (cursor_row * VGA_COLS + cursor_col) * 2;
+        video[offset] = ' ';
+        video[offset+1] = 0x07;
+        vga_set_cursor(cursor_row, cursor_col);
+        return;
+    }
+    if (cursor_col >= VGA_COLS) {
+        cursor_col = 0;
+        cursor_row++;
+    }
+    int offset = (cursor_row * VGA_COLS + cursor_col) * 2;
     video[offset] = c;
     video[offset+1] = 0x07;
     cursor_col++;
+    vga_set_cursor(cursor_row, cursor_col);
 }
 void vga_print(const char *str) {
     while (*str) {
