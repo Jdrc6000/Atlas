@@ -21,6 +21,10 @@ ENTRY_OBJ := $(BUILD)/kernel_entry.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 VGA_OBJ := $(BUILD)/vga.o
 KEYBOARD_OBJ := $(BUILD)/keyboard.o
+SHELL_OBJ := $(BUILD)/shell.o
+CLEAR_OBJ := $(BUILD)/clear.o
+ECHO_OBJ := $(BUILD)/echo.o
+HELP_OBJ := $(BUILD)/help.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -29,7 +33,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -38,6 +42,14 @@ $(KEYBOARD_OBJ): kernel/keyboard.c | $(BUILD)
 $(ENTRY_OBJ): $(ENTRY_SRC) | $(BUILD)
 	$(ASM) $(ASMFLAGS) $< -o $@
 $(KERNEL_OBJ): $(KERNEL_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(SHELL_OBJ): kernel/shell.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(CLEAR_OBJ): kernel/commands/clear.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(ECHO_OBJ): kernel/commands/echo.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(HELP_OBJ): kernel/commands/help.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -134,6 +146,21 @@ void keyboard_init();
 char keyboard_poll();
 #endif
 
+--- include/shell.h ---
+#ifndef SHELL_H
+#define SHELL_H
+#define MAX_INPUT 256
+#define MAX_ARGS 16
+typedef struct {
+    const char *name;
+    const char *description;
+    int (*handler)(int argc, char **argv);
+} command_t;
+void shell_run();
+void shell_register_commands(const command_t *cmds, int count);
+int shell_exec(int argc, char **argv);
+#endif
+
 --- include/vga.h ---
 #ifndef VGA_H
 #define VGA_H
@@ -146,19 +173,73 @@ void vga_print(const char *str);
 void set_cursor(int row, int column);
 #endif
 
+--- kernel/commands/clear.c ---
+#include "vga.h"
+int cmd_clear(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    vga_clear();
+    return 0;
+}
+
+--- kernel/commands/echo.c ---
+#include "vga.h"
+int cmd_echo(int argc, char **argv) {
+    int newline = 1;
+    int start = 1;
+    if (argc > 1) {
+        if (argv[1][0] == '-' && argv[1][1] == 'n' && argv[1][2] == '\0') {
+            newline = 0;
+            start = 2;
+        }
+    }
+    for (int i = start; i < argc; i++) {
+        vga_print(argv[i]);
+        if (i < argc - 1)
+            vga_putchar(' ');
+    }
+    if (newline) vga_putchar('\n');
+    return 0;
+}
+
+--- kernel/commands/help.c ---
+#include "shell.h"
+#include "vga.h"
+extern const command_t *registry;
+extern int registry_len;
+int cmd_help(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    vga_print("available commands:\n");
+    for (int i = 0; i < registry_len; i++) {
+        vga_print("  ");
+        vga_print(registry[i].name);
+        vga_print(" - ");
+        vga_print(registry[i].description);
+        vga_putchar('\n');
+    }
+    return 0;
+}
+
 --- kernel/kernel.c ---
 #include "vga.h"
 #include "keyboard.h"
+#include "shell.h"
+extern int cmd_clear(int argc, char **argv);
+extern int cmd_echo(int argc, char **argv);
+extern int cmd_help(int argc, char**argv);
+static const command_t commands[] = {
+    { "clear", "Clear the screen", cmd_clear },
+    { "echo", "Print arguments", cmd_echo },
+    { "help", "List all commands", cmd_help }
+};
 void kernel_main() {
     vga_clear();
     vga_print("Atlas OS\n");
     vga_print("Hello!!\n");
     keyboard_init();
-    while (1) {
-        char c = keyboard_poll();
-        if (c != 0)
-            vga_putchar(c);
-    }
+    shell_register_commands(commands, 3);
+    shell_run();
 }
 
 --- kernel/kernel_entry.asm ---
@@ -174,13 +255,13 @@ call_kernel:
 #include "vga.h"
 static char scancode_map[128] = {
     0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
-    0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', 0,
+    0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
     0,'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
     'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0,0, 0, ' ',
 };
 static char scancode_map_shifted[128] = {
     0, 0, '!', '@', '#', '$', '%', '^', '&', '*', '(' ,')' ,'_', '+', '\b',
-    0, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '{', '}', 0,
+    0, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '{', '}', '\n',
     0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ':', '"', '~', 0, '|',
     'z', 'x', 'c', 'v', 'b', 'n', 'm', '<', '>', '?', 0, 0, 0, ' ',
 };
@@ -221,6 +302,82 @@ char keyboard_poll() {
         return uppercase ? (base - 'a' + 'A') : base;
     } else {
         return shift_held ? scancode_map_shifted[key] : base;
+    }
+}
+
+--- kernel/shell.c ---
+#include "shell.h"
+#include "vga.h"
+#include "keyboard.h"
+static int strcmp(const char *a, const char *b) {
+    while (*a && *b)
+        if (*a++ != *b++)
+            return 0;
+    return *a == *b;
+}
+const command_t *registry = 0;
+int registry_len = 0;
+void shell_register_commands(const command_t *cmds, int count) {
+    registry = cmds;
+    registry_len = count;
+}
+char input_buf[MAX_INPUT];
+int buf_len = 0;
+static int parse(char *buf, char **argv) {
+    int argc = 0;
+    char *p = buf;
+    while (*p) {
+        // skip whitespace
+        while (*p == ' ') p++;
+        if (!*p) break;
+        // start of token
+        argv[argc++] = p;
+        if (argc >= MAX_ARGS) break;
+        while (*p && *p != ' ') p++;
+        if (*p == ' ') *p++ = '\0'; // null terminate
+    }
+    return argc;
+}
+int shell_exec(int argc, char **argv) {
+    if (argc == 0) return 0;
+    for (int i = 0; i < registry_len; i++) {
+        if (strcmp(registry[i].name, argv[0]) == 0)
+            return registry[i].handler(argc, argv);
+    }
+    vga_print("unknown command: ");
+    vga_print(argv[0]);
+    vga_putchar('\n');
+    return 1;
+}
+static void shell_prompt() {
+    vga_print("atlas>");
+}
+void shell_run() {
+    shell_prompt();
+    while (1) {
+        char c = keyboard_poll();
+        if (c == 0) continue;
+        if (c == '\n') {
+            input_buf[buf_len] = '\0';
+            vga_putchar('\n');
+            if (buf_len > 0) {
+                char *argv[MAX_ARGS];
+                int argc = parse(input_buf, argv);
+                shell_exec(argc, argv);
+            }
+            buf_len = 0;
+            shell_prompt();
+        } else if (c == '\b') {
+            if (buf_len > 0) {
+                buf_len--;
+                vga_putchar('\b');
+            }
+        } else {
+            if (buf_len < MAX_INPUT - 1) {
+                input_buf[buf_len++] = c;
+                vga_putchar(c);
+            }
+        }
     }
 }
 
