@@ -199,7 +199,7 @@ char keyboard_poll() {
     if (!(inb(0x64) & 0x01))
         return 0;
     unsigned char scancode = inb(0x60);
-    int released = scancode & 0x08;
+    int released = scancode & 0x80;
     unsigned char key = scancode & 0x7F; // strip release bit
     if (key == 0x2A || key == 0x36) {
         shift_held = !released;
@@ -210,7 +210,7 @@ char keyboard_poll() {
             caps_lock_on = !caps_lock_on;
         return 0;
     }
-    if (!released)
+    if (released)
         return 0;
     char base = scancode_map[key];
     if (base == 0)
