@@ -29,6 +29,8 @@ IDT_OBJ := $(BUILD)/idt.o
 PIC_OBJ := $(BUILD)/pic.o
 IRQ_OBJ := $(BUILD)/irq.o
 ISR_OBJ := $(BUILD)/isr.o
+UPTIME_OBJ := $(BUILD)/uptime.o
+KMALLOC_OBJ := $(BUILD)/kmalloc.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -37,7 +39,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -63,6 +65,10 @@ $(IRQ_OBJ): kernel/irq.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(ISR_OBJ): kernel/isr.asm | $(BUILD)
 	$(ASM) $(ASMFLAGS) $< -o $@
+$(UPTIME_OBJ): kernel/commands/uptime.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(KMALLOC_OBJ): kernel/kmalloc.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
 .PHONY: run
@@ -192,6 +198,15 @@ char keyboard_getchar();
 int keyboard_haschar();
 #endif
 
+--- include/kmalloc.h ---
+#ifndef KMALLOC_H
+#define KMALLOC_H
+typedef unsigned int uint32_t;
+void kmalloc_init();
+void *kmalloc(uint32_t size);
+uint32_t kmalloc_used();
+#endif
+
 --- include/pic.h ---
 #ifndef PIC_H
 #define PIC_H
@@ -233,6 +248,7 @@ int shell_exec(int argc, char **argv);
 void vga_clear();
 void vga_putchar(char c);
 void vga_print(const char *str);
+void vga_print_int(int n);
 void set_cursor(int row, int column);
 #endif
 
@@ -281,6 +297,41 @@ int cmd_help(int argc, char **argv) {
         vga_print(registry[i].description);
         vga_putchar('\n');
     }
+    return 0;
+}
+
+--- kernel/commands/mem.c ---
+#include "vga.h"
+#include "kmalloc.h"
+int cmd_mem(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    vga_print("heap used: ");
+    vga_print_int(kmalloc_used());
+    vga_print(" bytes\n");
+    return 0;
+}
+
+--- kernel/commands/uptime.c ---
+#include "vga.h"
+#include "irq.h"
+#define TICKS_PER_SEC 18
+int cmd_uptime(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    unsigned int ticks = irq_get_ticks();
+    unsigned int seconds = ticks / TICKS_PER_SEC;
+    unsigned int minutes = seconds / 60;
+    unsigned int hours   = minutes / 60;
+    seconds %= 60;
+    minutes %= 60;
+    vga_print("uptime: ");
+    vga_print_int(hours);
+    vga_print("h ");
+    vga_print_int(minutes);
+    vga_print("m ");
+    vga_print_int(seconds);
+    vga_print("s\n");
     return 0;
 }
 
@@ -356,21 +407,27 @@ IRQ_STUB 1, 1
 #include "shell.h"
 #include "irq.h"
 #include "idt.h"
+#include "kmalloc.h"
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
 extern int cmd_help(int argc, char**argv);
+extern int cmd_uptime(int argc, char **argv);
+extern int cmd_mem(int argc, char **argv);
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
     { "echo", "Print arguments", cmd_echo },
-    { "help", "List all commands", cmd_help }
+    { "help", "List all commands", cmd_help },
+    { "uptime", "Show time since boot", cmd_uptime },
+    { "mem", "Show bytes in heap", cmd_mem }
 };
 void kernel_main() {
     vga_clear();
     vga_print("Atlas OS\n");
     idt_init();
     irq_init();
+    kmalloc_init();
     keyboard_init();
-    shell_register_commands(commands, 3);
+    shell_register_commands(commands, sizeof(commands) / sizeof((commands)[0]));
     shell_run();
 }
 
@@ -455,6 +512,32 @@ char keyboard_getchar() {
     char c = kb_buf[kb_tail];
     kb_tail = (kb_tail + 1) % KB_BUF_SIZE;
     return c;
+}
+
+--- kernel/kmalloc.c ---
+#include "kmalloc.h"
+#define HEAP_MAX 0x100000 // 1mb
+extern char heap_start;
+static char *heap_ptr = 0;
+static char *heap_base = 0;
+void kmalloc_init() {
+    heap_base = &heap_start;
+    heap_ptr = &heap_start;
+}
+void *kmalloc(uint32_t size) {
+    if (!size)
+        return 0;
+    // align to 4 bytes
+    size = (size + 3) & ~3;
+    // check we haven't overflowed
+    if ((uint32_t)(heap_ptr + size) > (uint32_t)(heap_base + HEAP_MAX))
+        return 0; // out of memory
+    void *ptr = heap_ptr;
+    heap_ptr += size;
+    return ptr;
+}
+uint32_t kmalloc_used() {
+    return (uint32_t)(heap_ptr - heap_base);
 }
 
 --- kernel/pic.c ---
@@ -644,23 +727,27 @@ void vga_print(const char *str) {
         str++;
     }
 }
+void vga_print_int(int n) {
+    if (n == 0) { vga_putchar('0'); return; }
+    char buf[16];
+    int i = 0;
+    while (n > 0) {
+        buf[i++] = '0' + (n % 10);
+        n /= 10;
+    }
+    for (int j = i - 1; j >= 0; j--)
+        vga_putchar(buf[j]);
+}
 
 --- linker.ld ---
 ENTRY(call_kernel)
 SECTIONS
 {
   . = 0x1000;
-  .text :
-  {
-    *(.text)
-  }
-  .data :
-  {
-    *(.data)
-  }
-  .bss :
-  {
-    *(.bss)
-  }
+  .text : { *(.text) }
+  .data : { *(.data) }
+  .bss  : { *(.bss)  }
+  . = ALIGN(4096);
+  heap_start = .;
 }
 
