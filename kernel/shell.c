@@ -2,22 +2,21 @@
 #include "vga.h"
 #include "keyboard.h"
 
-// compares to strings
+const command_t *registry = 0;
+int registry_len = 0;
+char input_buf[MAX_INPUT];
+int buf_len = 0;
+
+// compares two strings
 static int strcmp(const char *a, const char *b) {
     while (*a && *b && *a == *b) { a++; b++; }
     return *a == *b;
 }
 
-const command_t *registry = 0;
-int registry_len = 0;
-
 void shell_register_commands(const command_t *cmds, int count) {
     registry = cmds;
     registry_len = count;
 }
-
-char input_buf[MAX_INPUT];
-int buf_len = 0;
 
 static int parse(char *buf, char **argv) {
     int argc = 0;
@@ -61,8 +60,9 @@ void shell_run() {
     shell_prompt();
 
     while (1) {
-        char c = keyboard_poll();
-        if (c == 0) continue;
+        if (!keyboard_haschar()) continue;  // wait for buffer
+
+        char c = keyboard_getchar();
 
         if (c == '\n') {
             input_buf[buf_len] = '\0';

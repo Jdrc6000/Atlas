@@ -20,11 +20,15 @@ BOOT_BIN := $(BUILD)/boot.bin
 ENTRY_OBJ := $(BUILD)/kernel_entry.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 VGA_OBJ := $(BUILD)/vga.o
-KEYBOARD_OBJ := $(BUILD)/keyboard.o
+KEYBOARD_OBJ:= $(BUILD)/keyboard.o
 SHELL_OBJ := $(BUILD)/shell.o
 CLEAR_OBJ := $(BUILD)/clear.o
 ECHO_OBJ := $(BUILD)/echo.o
 HELP_OBJ := $(BUILD)/help.o
+IDT_OBJ := $(BUILD)/idt.o
+PIC_OBJ := $(BUILD)/pic.o
+IRQ_OBJ := $(BUILD)/irq.o
+ISR_OBJ := $(BUILD)/isr.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -33,7 +37,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -51,6 +55,14 @@ $(ECHO_OBJ): kernel/commands/echo.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(HELP_OBJ): kernel/commands/help.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+$(IDT_OBJ): kernel/idt.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(PIC_OBJ): kernel/pic.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(IRQ_OBJ): kernel/irq.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(ISR_OBJ): kernel/isr.asm | $(BUILD)
+	$(ASM) $(ASMFLAGS) $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
 .PHONY: run
@@ -137,6 +149,37 @@ BOOT_DRIVE db 0
 times 510-($-$$) db 0
 dw 0xAA55
 
+--- include/idt.h ---
+#ifndef IDT_H
+#define IDT_H
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef struct __attribute__((packed)) {
+    uint16_t offset_low;
+    uint16_t selector;
+    uint8_t zero;
+    uint8_t type_attr;
+    uint16_t offset_high;
+} idt_entry_t;
+typedef struct __attribute__((packed)) {
+    uint16_t limit;
+    uint32_t base;
+} idt_ptr_t;
+void idt_init();
+void idt_set_gate(int n, uint32_t handler, uint16_t selector, uint8_t flags);
+#endif
+
+--- include/irq.h ---
+#ifndef IRQ_H
+#define IRQ_H
+typedef unsigned int uint32_t;
+uint32_t irq_get_ticks();
+void irq_init();
+void irq0_handler();
+void irq1_handler();
+#endif
+
 --- include/keyboard.h ---
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -144,6 +187,23 @@ dw 0xAA55
 #define KEYBOARD_STATUS_PORT 0x64 // returns 0=not ready, 1=ready
 void keyboard_init();
 char keyboard_poll();
+#endif
+
+--- include/pic.h ---
+#ifndef PIC_H
+#define PIC_H
+#define PIC1_CMD 0x20
+#define PIC1_DATA 0x21
+#define PIC2_CMD 0xA0
+#define PIC2_DATA 0xA1
+#define PIC_EOI 0x20 // end of interrupt
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+void pic_remap(int offset1, int offset2);
+void pic_send_eoi(int irq);
+void irq_set_mask(int irq);
+void irq_clear_mask(int irq);
 #endif
 
 --- include/shell.h ---
@@ -221,10 +281,78 @@ int cmd_help(int argc, char **argv) {
     return 0;
 }
 
+--- kernel/idt.c ---
+#include "idt.h"
+static idt_entry_t idt[256];
+static idt_ptr_t idt_ptr;
+void idt_set_gate(int n, uint32_t handler, uint16_t selector, uint8_t flags) {
+    idt[n].offset_low = handler & 0xFFFF;
+    idt[n].offset_high = (handler >> 16) & 0xFFFF;
+    idt[n].selector = selector;
+    idt[n].zero = 0;
+    idt[n].type_attr = flags;
+}
+void idt_init() {
+    idt_ptr.limit = sizeof(idt) - 1;
+    idt_ptr.base = (uint32_t)&idt;
+    // zero out all 256 entries to start
+    for (int i = 0; i < 256; i++)
+        idt_set_gate(i, 0, 0, 0);
+    // tell the cpu where the idt is
+    __asm__ volatile("lidt %0" : : "m"(idt_ptr));
+}
+
+--- kernel/irq.c ---
+#include "irq.h"
+#include "idt.h"
+#include "pic.h"
+#include "vga.h"
+#include "keyboard.h"
+extern void irq0_stub();
+extern void irq1_stub();
+static volatile uint32_t ticks = 0;
+uint32_t irq_get_ticks() { return ticks; }
+void irq0_handler() {
+    ticks++;
+    pic_send_eoi(0);
+}
+void irq1_handler() {
+    char c = keyboard_poll();
+    if (c != 0)
+        vga_putchar(c);
+    pic_send_eoi(1);
+}
+void irq_init() {
+    pic_remap(0x20, 0x28);
+    idt_set_gate(0x20, (uint32_t)irq0_stub, 0x08, 0x8E);  // timer
+    idt_set_gate(0x21, (uint32_t)irq1_stub, 0x08, 0x8E);  // keyboard
+    irq_clear_mask(0);
+    irq_clear_mask(1);
+    __asm__ volatile ("sti");
+}
+
+--- kernel/isr.asm ---
+[bits 32]
+extern irq0_handler
+extern irq1_handler
+global irq0_stub
+global irq1_stub
+%macro IRQ_STUB 2
+irq%1_stub:
+    pusha  ; save all general purpose registers
+    call irq%2_handler  ; call the C handler
+    popa  ; restore registers
+    iret  ; return from interrupt
+%endmacro
+IRQ_STUB 0, 0
+IRQ_STUB 1, 1
+
 --- kernel/kernel.c ---
 #include "vga.h"
 #include "keyboard.h"
 #include "shell.h"
+#include "irq.h"
+#include "idt.h"
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
 extern int cmd_help(int argc, char**argv);
@@ -236,7 +364,8 @@ static const command_t commands[] = {
 void kernel_main() {
     vga_clear();
     vga_print("Atlas OS\n");
-    vga_print("Hello!!\n");
+    idt_init();
+    irq_init();
     keyboard_init();
     shell_register_commands(commands, 3);
     shell_run();
@@ -305,14 +434,63 @@ char keyboard_poll() {
     }
 }
 
+--- kernel/pic.c ---
+#include "pic.h"
+static inline void outb(unsigned short port, unsigned char val) {
+    __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+static inline unsigned char inb(unsigned short port) {
+    unsigned char val;
+    __asm__ volatile("inb %1, %0" : "=a"(val) : "Nd"(port));
+    return val;
+}
+static inline void io_wait() {
+    // writing to an unused port (0x80) causes a small delay needed when writing commands to the pic because its SLOW
+    outb(0x80, 0);
+}
+void pic_remap(int offset1, int offset2) {
+    // save masks
+    unsigned char mask1 = inb(PIC1_DATA);
+    unsigned char mask2 = inb(PIC2_DATA);
+    // ICW1: start initialization sequence
+    outb(PIC1_CMD,  0x11); io_wait();
+    outb(PIC2_CMD,  0x11); io_wait();
+    // ICW2: set vector offsets
+    outb(PIC1_DATA, offset1); io_wait();
+    outb(PIC2_DATA, offset2); io_wait();
+    // ICW3: tell PICs about each other
+    outb(PIC1_DATA, 0x04); io_wait();
+    outb(PIC2_DATA, 0x02); io_wait();
+    // ICW4: 8086 mode
+    outb(PIC1_DATA, 0x01); io_wait();
+    outb(PIC2_DATA, 0x01); io_wait();
+    // restore masks
+    outb(PIC1_DATA, mask1);
+    outb(PIC2_DATA, mask2);
+}
+void pic_send_eoi(int irq) {
+    if (irq >= 8)
+        outb(PIC2_CMD, PIC_EOI);
+    outb(PIC1_CMD, PIC_EOI);
+}
+void irq_set_mask(int irq) {
+    unsigned short port = (irq < 8) ? PIC1_DATA : PIC2_DATA;
+    if (irq >= 8) irq -= 8;
+    outb(port, inb(port) | (1 << irq));
+}
+void irq_clear_mask(int irq) {
+    unsigned short port = (irq < 8) ? PIC1_DATA : PIC2_DATA;
+    if (irq >= 8) irq -= 8;
+    outb(port, inb(port) & ~(1 << irq));
+}
+
 --- kernel/shell.c ---
 #include "shell.h"
 #include "vga.h"
 #include "keyboard.h"
+// compares to strings
 static int strcmp(const char *a, const char *b) {
-    while (*a && *b)
-        if (*a++ != *b++)
-            return 0;
+    while (*a && *b && *a == *b) { a++; b++; }
     return *a == *b;
 }
 const command_t *registry = 0;
@@ -341,7 +519,7 @@ static int parse(char *buf, char **argv) {
 int shell_exec(int argc, char **argv) {
     if (argc == 0) return 0;
     for (int i = 0; i < registry_len; i++) {
-        if (strcmp(registry[i].name, argv[0]) == 0)
+        if (strcmp(registry[i].name, argv[0]))
             return registry[i].handler(argc, argv);
     }
     vga_print("unknown command: ");

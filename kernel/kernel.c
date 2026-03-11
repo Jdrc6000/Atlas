@@ -1,6 +1,8 @@
 #include "vga.h"
 #include "keyboard.h"
 #include "shell.h"
+#include "irq.h"
+#include "idt.h"
 
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
@@ -15,7 +17,9 @@ static const command_t commands[] = {
 void kernel_main() {
     vga_clear();
     vga_print("Atlas OS\n");
-    vga_print("Hello!!\n");
+
+    idt_init();
+    irq_init();
 
     keyboard_init();
     shell_register_commands(commands, 3);

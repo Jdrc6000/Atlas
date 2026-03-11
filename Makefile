@@ -1,24 +1,29 @@
 ASM := nasm
 CC := i686-elf-gcc
 LD := i686-elf-ld
-
 ASMFLAGS := -f elf32
 CFLAGS := -ffreestanding -m32 -nostdlib -nostdinc -fno-builtin -fno-stack-protector -Wall -Wextra -Iinclude
 LDFLAGS := -T linker.ld -m elf_i386 --oformat binary
-
 BUILD := build
+
 BOOT_SRC := boot/boot.asm
 ENTRY_SRC := kernel/kernel_entry.asm
 KERNEL_C := kernel/kernel.c
+
 BOOT_BIN := $(BUILD)/boot.bin
 ENTRY_OBJ := $(BUILD)/kernel_entry.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 VGA_OBJ := $(BUILD)/vga.o
-KEYBOARD_OBJ := $(BUILD)/keyboard.o
+KEYBOARD_OBJ:= $(BUILD)/keyboard.o
 SHELL_OBJ := $(BUILD)/shell.o
 CLEAR_OBJ := $(BUILD)/clear.o
 ECHO_OBJ := $(BUILD)/echo.o
 HELP_OBJ := $(BUILD)/help.o
+IDT_OBJ := $(BUILD)/idt.o
+PIC_OBJ := $(BUILD)/pic.o
+IRQ_OBJ := $(BUILD)/irq.o
+ISR_OBJ := $(BUILD)/isr.o
+
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 
@@ -31,7 +36,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
@@ -51,10 +56,24 @@ $(SHELL_OBJ): kernel/shell.c | $(BUILD)
 
 $(CLEAR_OBJ): kernel/commands/clear.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
 $(ECHO_OBJ): kernel/commands/echo.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
 $(HELP_OBJ): kernel/commands/help.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(IDT_OBJ): kernel/idt.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(PIC_OBJ): kernel/pic.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(IRQ_OBJ): kernel/irq.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ISR_OBJ): kernel/isr.asm | $(BUILD)
+	$(ASM) $(ASMFLAGS) $< -o $@
 
 $(BUILD):
 	mkdir -p $(BUILD)

@@ -1,6 +1,8 @@
 #include "keyboard.h"
 #include "vga.h"
 
+#define KB_BUF_SIZE 64
+
 static char scancode_map[128] = {
     0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
     0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
@@ -17,6 +19,10 @@ static char scancode_map_shifted[128] = {
 
 static int shift_held = 0;
 static int caps_lock_on = 0;
+
+static volatile char kb_buf[KB_BUF_SIZE];
+static volatile int kb_head = 0;
+static volatile int kb_tail = 0;
 
 static inline unsigned char inb(unsigned short port) {
     unsigned char val;
@@ -63,4 +69,23 @@ char keyboard_poll() {
     } else {
         return shift_held ? scancode_map_shifted[key] : base;
     }
+}
+
+void keyboard_push(char c) {
+    int next = (kb_head + 1) % KB_BUF_SIZE;
+    if (next == kb_tail) return;
+    kb_buf[kb_head] = c;
+    kb_head = next;
+}
+
+int keyboard_haschar() {
+    return kb_head != kb_tail;
+}
+
+char keyboard_getchar() {
+    if (!keyboard_haschar())
+        return 0;
+    char c = kb_buf[kb_tail];
+    kb_tail = (kb_tail + 1) % KB_BUF_SIZE;
+    return c;
 }
