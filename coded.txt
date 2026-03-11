@@ -183,10 +183,13 @@ void irq1_handler();
 --- include/keyboard.h ---
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
-#define KEYBOARD_DATA_PORT 0x60 // returns scancode
-#define KEYBOARD_STATUS_PORT 0x64 // returns 0=not ready, 1=ready
+#define KEYBOARD_DATA_PORT 0x60
+#define KEYBOARD_STATUS_PORT 0x64
 void keyboard_init();
 char keyboard_poll();
+void keyboard_push(char c);
+char keyboard_getchar();
+int keyboard_haschar();
 #endif
 
 --- include/pic.h ---
@@ -319,7 +322,7 @@ void irq0_handler() {
 void irq1_handler() {
     char c = keyboard_poll();
     if (c != 0)
-        vga_putchar(c);
+        keyboard_push(c);
     pic_send_eoi(1);
 }
 void irq_init() {
@@ -382,6 +385,7 @@ call_kernel:
 --- kernel/keyboard.c ---
 #include "keyboard.h"
 #include "vga.h"
+#define KB_BUF_SIZE 64
 static char scancode_map[128] = {
     0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
     0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
@@ -396,6 +400,9 @@ static char scancode_map_shifted[128] = {
 };
 static int shift_held = 0;
 static int caps_lock_on = 0;
+static volatile char kb_buf[KB_BUF_SIZE];
+static volatile int kb_head = 0;
+static volatile int kb_tail = 0;
 static inline unsigned char inb(unsigned short port) {
     unsigned char val;
     __asm__ volatile ("inb %1, %0" : "=a"(val) : "Nd"(port));
@@ -432,6 +439,22 @@ char keyboard_poll() {
     } else {
         return shift_held ? scancode_map_shifted[key] : base;
     }
+}
+void keyboard_push(char c) {
+    int next = (kb_head + 1) % KB_BUF_SIZE;
+    if (next == kb_tail) return;
+    kb_buf[kb_head] = c;
+    kb_head = next;
+}
+int keyboard_haschar() {
+    return kb_head != kb_tail;
+}
+char keyboard_getchar() {
+    if (!keyboard_haschar())
+        return 0;
+    char c = kb_buf[kb_tail];
+    kb_tail = (kb_tail + 1) % KB_BUF_SIZE;
+    return c;
 }
 
 --- kernel/pic.c ---
@@ -488,19 +511,19 @@ void irq_clear_mask(int irq) {
 #include "shell.h"
 #include "vga.h"
 #include "keyboard.h"
-// compares to strings
+const command_t *registry = 0;
+int registry_len = 0;
+char input_buf[MAX_INPUT];
+int buf_len = 0;
+// compares two strings
 static int strcmp(const char *a, const char *b) {
     while (*a && *b && *a == *b) { a++; b++; }
     return *a == *b;
 }
-const command_t *registry = 0;
-int registry_len = 0;
 void shell_register_commands(const command_t *cmds, int count) {
     registry = cmds;
     registry_len = count;
 }
-char input_buf[MAX_INPUT];
-int buf_len = 0;
 static int parse(char *buf, char **argv) {
     int argc = 0;
     char *p = buf;
@@ -533,8 +556,8 @@ static void shell_prompt() {
 void shell_run() {
     shell_prompt();
     while (1) {
-        char c = keyboard_poll();
-        if (c == 0) continue;
+        if (!keyboard_haschar()) continue;  // wait for buffer
+        char c = keyboard_getchar();
         if (c == '\n') {
             input_buf[buf_len] = '\0';
             vga_putchar('\n');

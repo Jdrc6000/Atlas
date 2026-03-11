@@ -23,6 +23,7 @@ IDT_OBJ := $(BUILD)/idt.o
 PIC_OBJ := $(BUILD)/pic.o
 IRQ_OBJ := $(BUILD)/irq.o
 ISR_OBJ := $(BUILD)/isr.o
+UPTIME_OBJ := $(BUILD)/uptime.o
 
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
@@ -36,7 +37,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
@@ -74,6 +75,9 @@ $(IRQ_OBJ): kernel/irq.c | $(BUILD)
 
 $(ISR_OBJ): kernel/isr.asm | $(BUILD)
 	$(ASM) $(ASMFLAGS) $< -o $@
+
+$(UPTIME_OBJ): kernel/commands/uptime.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD):
 	mkdir -p $(BUILD)

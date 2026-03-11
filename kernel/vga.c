@@ -74,3 +74,18 @@ void vga_print(const char *str) {
         str++;
     }
 }
+
+void vga_print_int(int n) {
+    if (n == 0) { vga_putchar('0'); return; }
+    
+    char buf[16];
+    int i = 0;
+
+    while (n > 0) {
+        buf[i++] = '0' + (n % 10);
+        n /= 10;
+    }
+
+    for (int j = i - 1; j >= 0; j--)
+        vga_putchar(buf[j]);
+}
