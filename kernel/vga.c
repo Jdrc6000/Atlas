@@ -9,7 +9,6 @@ static inline void outb(unsigned short port, unsigned char val) {
 
 void vga_set_cursor(int row, int col) {
     unsigned short pos = row * VGA_COLS + col;
-
     outb(0x3D4, 0x0F);
     outb(0x3D5, (unsigned char)(pos & 0xFF));
     outb(0x3D4, 0x0E);
@@ -18,27 +17,47 @@ void vga_set_cursor(int row, int col) {
 
 void vga_clear() {
     char *video = (char *)VGA_ADDRESS;
-
     for (int i = 0; i < VGA_COLS * VGA_ROWS * 2; i += 2) {
         video[i] = ' ';
         video[i+1] = 0x07;
     }
-
     cursor_col = 0;
     cursor_row = 0;
     vga_set_cursor(0, 0);
 }
 
-void vga_putchar(char c) {
+static void vga_scroll() {
     char *video = (char *)VGA_ADDRESS;
 
+    // shift every row up by one
+    for (int row = 0; row < VGA_ROWS - 1; row++) {
+        for (int col = 0; col < VGA_COLS; col++) {
+            int dst = (row * VGA_COLS + col) * 2;
+            int src = ((row + 1) * VGA_COLS + col) * 2;
+            video[dst]   = video[src];
+            video[dst+1] = video[src+1];
+        }
+    }
+    
+    // blank out the last row
+    for (int col = 0; col < VGA_COLS; col++) {
+        int offset = ((VGA_ROWS - 1) * VGA_COLS + col) * 2;
+        video[offset]   = ' ';
+        video[offset+1] = 0x07;
+    }
+    cursor_row = VGA_ROWS - 1;
+}
+
+void vga_putchar(char c) {
+    char *video = (char *)VGA_ADDRESS;
     if (c == '\n') {
         cursor_col = 0;
         cursor_row++;
+        if (cursor_row >= VGA_ROWS)
+            vga_scroll();
         vga_set_cursor(cursor_row, cursor_col);
         return;
     }
-
     if (c == '\b') {
         if (cursor_col > 0) {
             cursor_col--;
@@ -46,24 +65,21 @@ void vga_putchar(char c) {
             cursor_row--;
             cursor_col = VGA_COLS - 1;
         }
-
-        char *video = (char *)VGA_ADDRESS;
         int offset = (cursor_row * VGA_COLS + cursor_col) * 2;
         video[offset] = ' ';
         video[offset+1] = 0x07;
         vga_set_cursor(cursor_row, cursor_col);
         return;
     }
-
     if (cursor_col >= VGA_COLS) {
         cursor_col = 0;
         cursor_row++;
+        if (cursor_row >= VGA_ROWS)
+            vga_scroll();
     }
-
     int offset = (cursor_row * VGA_COLS + cursor_col) * 2;
     video[offset] = c;
     video[offset+1] = 0x07;
-
     cursor_col++;
     vga_set_cursor(cursor_row, cursor_col);
 }
@@ -77,15 +93,12 @@ void vga_print(const char *str) {
 
 void vga_print_int(int n) {
     if (n == 0) { vga_putchar('0'); return; }
-    
     char buf[16];
     int i = 0;
-
     while (n > 0) {
         buf[i++] = '0' + (n % 10);
         n /= 10;
     }
-
     for (int j = i - 1; j >= 0; j--)
         vga_putchar(buf[j]);
 }
