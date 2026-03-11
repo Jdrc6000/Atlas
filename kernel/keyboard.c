@@ -35,34 +35,32 @@ void keyboard_init() {
         inb(0x60);
 }
 
+static int e0_prefix = 0;
+
 char keyboard_poll() {
-    if (!(inb(0x64) & 0x01))
-        return 0;
-    
+    if (!(inb(0x64) & 0x01)) return 0;
     unsigned char scancode = inb(0x60);
+
+    if (scancode == 0xE0) { e0_prefix = 1; return 0; }
+
+    if (e0_prefix) {
+        e0_prefix = 0;
+        if (scancode == 0x48) return KEY_UP;
+        if (scancode == 0x50) return KEY_DOWN;
+        return 0;
+    }
+
     int released = scancode & 0x80;
-    unsigned char key = scancode & 0x7F; // strip release bit
+    unsigned char key = scancode & 0x7F;
 
-    if (key == 0x2A || key == 0x36) {
-        shift_held = !released;
-        return 0;
-    }
+    if (key == 0x2A || key == 0x36) { shift_held = !released; return 0; }
+    if (key == 0x3A) { if (!released) caps_lock_on = !caps_lock_on; return 0; }
+    if (released) return 0;
 
-    if (key == 0x3A) {
-        if (!released)
-            caps_lock_on = !caps_lock_on;
-        return 0;
-    }
-
-    if (released)
-        return 0;
-    
     char base = scancode_map[key];
-    if (base == 0)
-        return 0;
+    if (base == 0) return 0;
 
     int is_letter = (base >= 'a' && base <= 'z');
-
     if (is_letter) {
         int uppercase = caps_lock_on ^ shift_held;
         return uppercase ? (base - 'a' + 'A') : base;
