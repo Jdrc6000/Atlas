@@ -4,19 +4,22 @@
 #include "irq.h"
 #include "idt.h"
 #include "kmalloc.h"
+#include "rtc.h"
 
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
 extern int cmd_help(int argc, char**argv);
 extern int cmd_uptime(int argc, char **argv);
 extern int cmd_mem(int argc, char **argv);
+extern int cmd_date(int argc, char **argv);
 
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
     { "echo", "Print arguments", cmd_echo },
     { "help", "List all commands", cmd_help },
     { "uptime", "Show time since boot", cmd_uptime },
-    { "mem", "Show bytes in heap", cmd_mem }
+    { "mem", "Show bytes in heap", cmd_mem },
+    { "date", "Show current date and time", cmd_date },
 };
 
 void kernel_main() {

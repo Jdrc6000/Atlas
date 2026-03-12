@@ -68,7 +68,7 @@ int shell_exec(int argc, char **argv) {
 static void history_push(const char *cmd) {
     // free oldest slot if full
     if (history[history_head])
-        history[history_head] = 0; // the only problem with bump alloc = cant free memory
+        kfree(history[history_head]);
     history[history_head] = kstrdup(cmd);
     history_head = (history_head + 1) % HISTORY_MAX;
     if (history_len < HISTORY_MAX) history_len++;
