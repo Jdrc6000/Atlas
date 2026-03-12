@@ -27,7 +27,9 @@ UPTIME_OBJ := $(BUILD)/uptime.o
 KMALLOC_OBJ := $(BUILD)/kmalloc.o
 MEM_OBJ := $(BUILD)/mem.o
 DATE_OBJ := $(BUILD)/date.o
-RTC_OBJ  := $(BUILD)/rtc.o
+RTC_OBJ := $(BUILD)/rtc.o
+SPEAKER_OBJ := $(BUILD)/speaker.o
+BEEP_OBJ := $(BUILD)/beep.o
 
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
@@ -41,7 +43,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
@@ -95,12 +97,18 @@ $(DATE_OBJ): kernel/commands/date.c | $(BUILD)
 $(RTC_OBJ): kernel/rtc.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(SPEAKER_OBJ): kernel/speaker.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BEEP_OBJ): kernel/commands/beep.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD):
 	mkdir -p $(BUILD)
 
 .PHONY: run
 run: $(OS_IMG)
-	qemu-system-i386 -drive format=raw,file=$(OS_IMG)
+	qemu-system-i386 -drive format=raw,file=$(OS_IMG) -audiodev coreaudio,id=snd -machine pcspk-audiodev=snd
 
 .PHONY: clean
 clean:

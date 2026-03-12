@@ -12,6 +12,7 @@ extern int cmd_help(int argc, char**argv);
 extern int cmd_uptime(int argc, char **argv);
 extern int cmd_mem(int argc, char **argv);
 extern int cmd_date(int argc, char **argv);
+extern int cmd_beep(int argc, char **argv);
 
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
@@ -20,6 +21,7 @@ static const command_t commands[] = {
     { "uptime", "Show time since boot", cmd_uptime },
     { "mem", "Show bytes in heap", cmd_mem },
     { "date", "Show current date and time", cmd_date },
+    { "beep", "Beep the speaker (freq hz, duration ms)", cmd_beep },
 };
 
 void kernel_main() {
