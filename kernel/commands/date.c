@@ -13,9 +13,9 @@ int cmd_date(int argc, char **argv) {
     rtc_time_t t;
     rtc_read(&t);
 
-    // 20YY-MM-DD HH:MM:SS
-    vga_print("20"); // real dirty
-    print2(t.year);
+    // YY-MM-DD HH:MM:SS
+    int full_year = 2000 + t.year; // i mean, still dirty... but its better
+    vga_print_int(full_year);
     vga_putchar('-');
     print2(t.month);
     vga_putchar('-');

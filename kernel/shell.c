@@ -2,6 +2,7 @@
 #include "vga.h"
 #include "keyboard.h"
 #include "kmalloc.h"
+#include "kstring.h"
 
 #define HISTORY_MAX 16
 
@@ -17,14 +18,6 @@ static char *history[HISTORY_MAX];
 static int history_len = 0;
 static int history_head = 0;
 static int history_pos = -1;
-
-static int strcmp(const char *a, const char *b) {
-    while (*a && *b && *a == *b) { a++; b++; }
-    return *a == *b;
-}
-static int strlen(const char *s) {
-    int n = 0; while (s[n]) n++; return n;
-}
 
 static void redraw_tail() {
     for (int i = cursor_pos; i < buf_len; i++)
@@ -58,7 +51,7 @@ int shell_exec(int argc, char **argv) {
     if (argc == 0) return 0;
 
     for (int i = 0; i < registry_len; i++) {
-        if (strcmp(registry[i].name, argv[0]))
+        if (kstrcmp(registry[i].name, argv[0]))
             return registry[i].handler(argc, argv);
     }
 
@@ -127,7 +120,7 @@ void shell_run() {
             char *entry = history_get(next);
             if (entry) {
                 history_pos = next;
-                redraw_line(entry, strlen(entry));
+                redraw_line(entry, kstrlen(entry));
             }
 
         } else if (c == KEY_DOWN) {
@@ -139,7 +132,7 @@ void shell_run() {
                 char *entry = history_get(next);
                 if (entry) {
                     history_pos = next;
-                    redraw_line(entry, strlen(entry));
+                    redraw_line(entry, kstrlen(entry));
                 }
             }
 
@@ -165,7 +158,16 @@ void shell_run() {
                 vga_move_cursor_left();
                 redraw_tail();
             }
-
+        
+        } else if (c == '\x7F') {
+            // forward-delete: remove char at cursor_pos
+            if (cursor_pos < buf_len) {
+                for (int i = cursor_pos; i < buf_len - 1; i++)
+                    input_buf[i] = input_buf[i + 1];
+                buf_len--;
+                redraw_tail();
+            }
+        
         } else {
             if (buf_len < MAX_INPUT - 1) {
                 // shift buffer right to make room

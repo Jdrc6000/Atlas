@@ -36,6 +36,13 @@ DATE_OBJ := $(BUILD)/date.o
 RTC_OBJ := $(BUILD)/rtc.o
 SPEAKER_OBJ := $(BUILD)/speaker.o
 BEEP_OBJ := $(BUILD)/beep.o
+PAGING_OBJ  := $(BUILD)/paging.o
+PAGINGASM_OBJ := $(BUILD)/paging_asm.o
+PMM_OBJ := $(BUILD)/pmm.o
+PMM_CMD_OBJ := $(BUILD)/pmm_cmd.o
+VMM_OBJ := $(BUILD)/vmm.o
+VMM_CMD_OBJ := $(BUILD)/vmm_cmd.o
+KSTRING_OBJ := $(BUILD)/kstring.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -44,7 +51,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -83,6 +90,20 @@ $(RTC_OBJ): kernel/rtc.c | $(BUILD)
 $(SPEAKER_OBJ): kernel/speaker.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BEEP_OBJ): kernel/commands/beep.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(PAGING_OBJ): kernel/paging.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(PAGINGASM_OBJ): kernel/paging.asm | $(BUILD)
+	$(ASM) $(ASMFLAGS) $< -o $@
+$(PMM_OBJ): kernel/pmm.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(PMM_CMD_OBJ): kernel/commands/pmm.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(VMM_OBJ): kernel/vmm.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(VMM_CMD_OBJ): kernel/commands/vmm.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(KSTRING_OBJ): kernel/kstring.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -195,6 +216,7 @@ void idt_set_gate(int n, uint32_t handler, uint16_t selector, uint8_t flags);
 #ifndef IRQ_H
 #define IRQ_H
 typedef unsigned int uint32_t;
+#define TICKS_PER_SEC 1000
 uint32_t irq_get_ticks();
 void irq_init();
 void irq0_handler();
@@ -228,6 +250,31 @@ uint32_t kmalloc_used();
 char *kstrdup(const char *s);
 #endif
 
+--- include/kstring.h ---
+#ifndef KSTRING_H
+#define KSTRING_H
+typedef unsigned int uint32_t;
+int kstrlen(const char *s);
+int kstrcmp(const char *a, const char *b);
+int kstrncmp(const char *a, const char *b, uint32_t n);
+char *kstrcpy(char *dst, const char *src);
+char *kstrncpy(char *dst, const char *src, uint32_t n);
+void *kmemset(void *dst, int val, uint32_t n);
+void *kmemcpy(void *dst, const void *src, uint32_t n);
+int kmemcmp(const void *a, const void *b, uint32_t n);
+#endif
+
+--- include/paging.h ---
+#ifndef PAGING_H
+#define PAGING_H
+typedef unsigned int uint32_t;
+#define PAGE_PRESENT (1 << 0)
+#define PAGE_WRITE (1 << 1)
+#define PAGE_USER (1 << 2)
+void paging_init();
+uint32_t *paging_get_directory();
+#endif
+
 --- include/pic.h ---
 #ifndef PIC_H
 #define PIC_H
@@ -243,6 +290,17 @@ void pic_remap(int offset1, int offset2);
 void pic_send_eoi(int irq);
 void irq_set_mask(int irq);
 void irq_clear_mask(int irq);
+#endif
+
+--- include/pmm.h ---
+#ifndef PMM_H
+#define PMM_H
+typedef unsigned int uint32_t;
+#define PAGE_SIZE 4096
+#define PMM_RAM 0x1000000
+void pmm_init();
+uint32_t pmm_alloc();
+void pmm_free(uint32_t addr);
 #endif
 
 --- include/rtc.h ---
@@ -291,12 +349,24 @@ void speaker_beep(uint32_t hz, uint32_t ms);
 #define VGA_ADDRESS 0xB8000
 #define VGA_COLS 80
 #define VGA_ROWS 25
+typedef unsigned int uint32_t;
 void vga_clear();
 void vga_putchar(char c);
 void vga_print(const char *str);
 void vga_print_int(int n);
-void set_cursor(int row, int column);
+void vga_print_hex(uint32_t n);
+void vga_set_cursor(int row, int column);
 void vga_move_cursor_left();
+#endif
+
+--- include/vmm.h ---
+#ifndef VMM_H
+#define VMM_H
+#include "paging.h"
+typedef unsigned int uint32_t;
+void vmm_map(uint32_t *page_dir, uint32_t virt, uint32_t phys, uint32_t flags);
+void vmm_unmap(uint32_t *page_dir, uint32_t virt);
+uint32_t vmm_get_phys(uint32_t *page_dir, uint32_t virt);
 #endif
 
 --- kernel/commands/beep.c ---
@@ -410,14 +480,28 @@ int cmd_mem(int argc, char **argv) {
     return 0;
 }
 
+--- kernel/commands/pmm.c ---
+#include "vga.h"
+#include "pmm.h"
+int cmd_pmm(int argc, char **argv) {
+    (void)argc; (void)argv;
+    uint32_t a = pmm_alloc();
+    uint32_t b = pmm_alloc();
+    vga_print("alloc 1: 0x"); vga_print_hex(a); vga_putchar('\n');
+    vga_print("alloc 2: 0x"); vga_print_hex(b); vga_putchar('\n');
+    pmm_free(a);
+    uint32_t c = pmm_alloc();
+    vga_print("after free+alloc: 0x"); vga_print_hex(c); vga_putchar('\n');
+    return 0;
+}
+
 --- kernel/commands/uptime.c ---
 #include "vga.h"
 #include "irq.h"
-#define TICKS_PER_SEC 18
 int cmd_uptime(int argc, char **argv) {
     (void)argc;
     (void)argv;
-    unsigned int ticks = irq_get_ticks();
+    unsigned int ticks   = irq_get_ticks();
     unsigned int seconds = ticks / TICKS_PER_SEC;
     unsigned int minutes = seconds / 60;
     unsigned int hours   = minutes / 60;
@@ -430,6 +514,29 @@ int cmd_uptime(int argc, char **argv) {
     vga_print("m ");
     vga_print_int(seconds);
     vga_print("s\n");
+    return 0;
+}
+
+--- kernel/commands/vmm.c ---
+#include "vga.h"
+#include "vmm.h"
+#include "pmm.h"
+#include "paging.h"
+int cmd_vmm(int argc, char **argv) {
+    (void)argc; (void)argv;
+    uint32_t *pd = paging_get_directory();
+    uint32_t phys = pmm_alloc();
+    vga_print("phys page:  0x"); vga_print_hex(phys); vga_putchar('\n');
+    uint32_t virt = 0x400000;
+    vmm_map(pd, virt, phys, PAGE_PRESENT | PAGE_WRITE);
+    uint32_t *ptr = (uint32_t *)virt;
+    *ptr = 0xDEADBEEF;
+    vga_print("wrote 0xDEADBEEF to 0x400000\n");
+    vga_print("read back: 0x"); vga_print_hex(*ptr); vga_putchar('\n');
+    uint32_t resolved = vmm_get_phys(pd, virt);
+    vga_print("resolved:   0x"); vga_print_hex(resolved); vga_putchar('\n');
+    vmm_unmap(pd, virt);
+    vga_print("unmapped\n");
     return 0;
 }
 
@@ -462,6 +569,18 @@ void idt_init() {
 #include "keyboard.h"
 extern void irq0_stub();
 extern void irq1_stub();
+#define PIT_CHANNEL0 0x40
+#define PIT_CMD 0x43
+#define PIT_CLOCK 1193180
+static inline void outb(unsigned short port, unsigned char val) {
+    __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+static void pit_set_frequency(uint32_t hz) {
+    uint32_t divisor = PIT_CLOCK / hz;
+    outb(PIT_CMD, 0x36);
+    outb(PIT_CHANNEL0, (unsigned char)(divisor & 0xFF));
+    outb(PIT_CHANNEL0, (unsigned char)((divisor >> 8) & 0xFF));
+}
 static volatile uint32_t ticks = 0;
 uint32_t irq_get_ticks() { return ticks; }
 void irq0_handler() {
@@ -476,8 +595,9 @@ void irq1_handler() {
 }
 void irq_init() {
     pic_remap(0x20, 0x28);
-    idt_set_gate(0x20, (uint32_t)irq0_stub, 0x08, 0x8E);  // timer
-    idt_set_gate(0x21, (uint32_t)irq1_stub, 0x08, 0x8E);  // keyboard
+    pit_set_frequency(TICKS_PER_SEC);
+    idt_set_gate(0x20, (uint32_t)irq0_stub, 0x08, 0x8E); // timer
+    idt_set_gate(0x21, (uint32_t)irq1_stub, 0x08, 0x8E); //keyboard
     irq_clear_mask(0);
     irq_clear_mask(1);
     __asm__ volatile ("sti");
@@ -507,6 +627,9 @@ IRQ_STUB 1, 1
 #include "idt.h"
 #include "kmalloc.h"
 #include "rtc.h"
+#include "paging.h"
+#include "pmm.h"
+#include "vmm.h"
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
 extern int cmd_help(int argc, char**argv);
@@ -514,6 +637,8 @@ extern int cmd_uptime(int argc, char **argv);
 extern int cmd_mem(int argc, char **argv);
 extern int cmd_date(int argc, char **argv);
 extern int cmd_beep(int argc, char **argv);
+extern int cmd_pmm(int argc, char **argv);
+extern int cmd_vmm(int argc, char **argv);
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
     { "echo", "Print arguments", cmd_echo },
@@ -522,8 +647,12 @@ static const command_t commands[] = {
     { "mem", "Show bytes in heap", cmd_mem },
     { "date", "Show current date and time", cmd_date },
     { "beep", "Beep the speaker (freq hz, duration ms)", cmd_beep },
+    { "pmm", "Test physical memory manager", cmd_pmm },
+    { "vmm", "Test virtual memory manager", cmd_vmm },
 };
 void kernel_main() {
+    paging_init();
+    pmm_init();
     vga_clear();
     vga_print("Atlas OS\n");
     idt_init();
@@ -736,6 +865,84 @@ char *kstrdup(const char *s) {
     return copy;
 }
 
+--- kernel/kstring.c ---
+#include "kstring.h"
+int kstrlen(const char *s) {
+    int n = 0;
+    while (s[n]) n++;
+    return n;
+}
+int kstrcmp(const char *a, const char *b) {
+    while (*a && *b && *a == *b) { a++; b++; }
+    return *a == *b;
+}
+int kstrncmp(const char *a, const char *b, uint32_t n) {
+    while (n-- && *a && *b && *a == *b) { a++; b++; }
+    if (n == (uint32_t)-1) return 1;
+    return *a == *b;
+}
+char *kstrcpy(char *dst, const char *src) {
+    char *d = dst;
+    while ((*d++ = *src++));
+    return dst;
+}
+char *kstrncpy(char *dst, const char *src, uint32_t n) {
+    char *d = dst;
+    while (n && (*d++ = *src++)) n--;
+    while (n--) *d++ = '\0';
+    return dst;
+}
+void *kmemset(void *dst, int val, uint32_t n) {
+    unsigned char *d = (unsigned char *)dst;
+    while (n--) *d++ = (unsigned char)val;
+    return dst;
+}
+void *kmemcpy(void *dst, const void *src, uint32_t n) {
+    unsigned char *d = (unsigned char *)dst;
+    const unsigned char *s = (const unsigned char *)src;
+    while (n--) *d++ = *s++;
+    return dst;
+}
+int kmemcmp(const void *a, const void *b, uint32_t n) {
+    const unsigned char *pa = (const unsigned char *)a;
+    const unsigned char *pb = (const unsigned char *)b;
+    while (n--) {
+        if (*pa != *pb) return *pa - *pb;
+        pa++; pb++;
+    }
+    return 0;
+}
+
+--- kernel/paging.asm ---
+[bits 32]
+global paging_enable
+paging_enable:
+    mov eax, [esp + 4]
+    mov cr3, eax
+    mov eax, cr0
+    or eax, 0x80000000
+    mov cr0, eax
+    ret
+
+--- kernel/paging.c ---
+#include "paging.h"
+static uint32_t page_directory[1024] __attribute__((aligned(4096)));
+static uint32_t page_table_0[1024] __attribute__((aligned(4096)));
+extern void paging_enable(uint32_t *page_directory);
+void paging_init() {
+    for (int i = 0; i < 1024; i++) {
+        uint32_t phys = i * 4096;
+        page_table_0[i] = phys | PAGE_PRESENT | PAGE_WRITE;
+    }
+    page_directory[0] = (uint32_t)page_table_0 | PAGE_PRESENT | PAGE_WRITE;
+    for (int i = 1; i < 1024; i++)
+        page_directory[i] = 0;
+    paging_enable(page_directory);
+}
+uint32_t *paging_get_directory() {
+    return page_directory;
+}
+
 --- kernel/pic.c ---
 #include "pic.h"
 static inline void outb(unsigned short port, unsigned char val) {
@@ -786,6 +993,45 @@ void irq_clear_mask(int irq) {
     outb(port, inb(port) & ~(1 << irq));
 }
 
+--- kernel/pmm.c ---
+#include "pmm.h"
+#define TOTAL_PAGES (PMM_RAM / PAGE_SIZE)
+#define BITMAP_SIZE (TOTAL_PAGES / 32)
+static uint32_t bitmap[BITMAP_SIZE];
+static void bitmap_set(uint32_t page) {
+    bitmap[page / 32] |= (1 << (page % 32));
+}
+static void bitmap_clear(uint32_t page) {
+    bitmap[page / 32] &= ~(1 << (page % 32));
+}
+static int bitmap_test(uint32_t page) {
+    return bitmap[page / 32] & (1 << (page % 32));
+}
+void pmm_init() {
+    // mark everything as used to start
+    for (int i = 0; i < BITMAP_SIZE; i++)
+        bitmap[i] = 0xFFFFFFFF;
+    uint32_t free_start = 0x200000; // 2mb
+    uint32_t free_end   = PMM_RAM;
+    for (uint32_t addr = free_start; addr < free_end; addr += PAGE_SIZE)
+        bitmap_clear(addr / PAGE_SIZE);
+}
+uint32_t pmm_alloc() {
+    for (int i = 0; i < BITMAP_SIZE; i++) {
+        if (bitmap[i] == 0xFFFFFFFF) continue; // all used, skip
+        for (int bit = 0; bit < 32; bit++) {
+            if (!(bitmap[i] & (1 << bit))) {
+                bitmap_set(i * 32 + bit);
+                return (uint32_t)(i * 32 + bit) * PAGE_SIZE;
+            }
+        }
+    }
+    return 0; // out of memory
+}
+void pmm_free(uint32_t addr) {
+    bitmap_clear(addr / PAGE_SIZE);
+}
+
 --- kernel/rtc.c ---
 #include "rtc.h"
 static inline unsigned char inb(unsigned short port) {
@@ -831,6 +1077,7 @@ void rtc_read(rtc_time_t *t) {
 #include "vga.h"
 #include "keyboard.h"
 #include "kmalloc.h"
+#include "kstring.h"
 #define HISTORY_MAX 16
 const command_t *registry = 0;
 int registry_len = 0;
@@ -841,13 +1088,6 @@ static char *history[HISTORY_MAX];
 static int history_len = 0;
 static int history_head = 0;
 static int history_pos = -1;
-static int strcmp(const char *a, const char *b) {
-    while (*a && *b && *a == *b) { a++; b++; }
-    return *a == *b;
-}
-static int strlen(const char *s) {
-    int n = 0; while (s[n]) n++; return n;
-}
 static void redraw_tail() {
     for (int i = cursor_pos; i < buf_len; i++)
         vga_putchar(input_buf[i]);
@@ -876,7 +1116,7 @@ static int parse(char *buf, char **argv) {
 int shell_exec(int argc, char **argv) {
     if (argc == 0) return 0;
     for (int i = 0; i < registry_len; i++) {
-        if (strcmp(registry[i].name, argv[0]))
+        if (kstrcmp(registry[i].name, argv[0]))
             return registry[i].handler(argc, argv);
     }
     vga_print("unknown command: ");
@@ -934,7 +1174,7 @@ void shell_run() {
             char *entry = history_get(next);
             if (entry) {
                 history_pos = next;
-                redraw_line(entry, strlen(entry));
+                redraw_line(entry, kstrlen(entry));
             }
         } else if (c == KEY_DOWN) {
             int next = history_pos - 1;
@@ -945,7 +1185,7 @@ void shell_run() {
                 char *entry = history_get(next);
                 if (entry) {
                     history_pos = next;
-                    redraw_line(entry, strlen(entry));
+                    redraw_line(entry, kstrlen(entry));
                 }
             }
         } else if (c == KEY_LEFT) {
@@ -1012,16 +1252,15 @@ void speaker_play(uint32_t hz) {
     outb(SPEAKER_PORT, val | 0x03);
 }
 void speaker_stop() {
-    // disconnect speaker by clearing bits 0 and 1
     unsigned char val = inb(SPEAKER_PORT);
     outb(SPEAKER_PORT, val & ~0x03);
 }
 void speaker_beep(uint32_t hz, uint32_t ms) {
-    uint32_t ticks = (ms * 182) / 10000;
-    if (ticks == 0) ticks = 1;
+    uint32_t ticks_needed = (ms * TICKS_PER_SEC) / 1000;
+    if (ticks_needed == 0) ticks_needed = 1;
     uint32_t start = irq_get_ticks();
     speaker_play(hz);
-    while (irq_get_ticks() - start < ticks);
+    while (irq_get_ticks() - start < ticks_needed);
     speaker_stop();
 }
 
@@ -1120,10 +1359,55 @@ void vga_print_int(int n) {
     for (int j = i - 1; j >= 0; j--)
         vga_putchar(buf[j]);
 }
+void vga_print_hex(uint32_t n) {
+    char digits[] = "0123456789abcdef";
+    for (int i = 28; i >= 0; i -= 4)
+        vga_putchar(digits[(n >> i) & 0xF]);
+}
 void vga_move_cursor_left() {
     if (cursor_col > 0) cursor_col--;
     else if (cursor_row > 0) { cursor_row--; cursor_col = VGA_COLS - 1; }
     vga_set_cursor(cursor_row, cursor_col);
+}
+
+--- kernel/vmm.c ---
+#include "vmm.h"
+#include "pmm.h"
+#include "paging.h"
+#define PD_INDEX(v)  ((v) >> 22)
+#define PT_INDEX(v)  (((v) >> 12) & 0x3FF)
+#define PAGE_ALIGN(v) ((v) & ~0xFFF)
+void vmm_map(uint32_t *page_dir, uint32_t virt, uint32_t phys, uint32_t flags) {
+    uint32_t pd_idx = PD_INDEX(virt);
+    uint32_t pt_idx = PT_INDEX(virt);
+    uint32_t *page_table;
+    if (page_dir[pd_idx] & PAGE_PRESENT) {
+        page_table = (uint32_t *)PAGE_ALIGN(page_dir[pd_idx]);
+    } else {
+        page_table = (uint32_t *)pmm_alloc();
+        if (!page_table) return; // out of memory
+        // zero it out
+        for (int i = 0; i < 1024; i++)
+            page_table[i] = 0;
+        page_dir[pd_idx] = (uint32_t)page_table | PAGE_PRESENT | PAGE_WRITE | (flags & PAGE_USER);
+    }
+    page_table[pt_idx] = (phys & ~0xFFF) | PAGE_PRESENT | flags;
+}
+void vmm_unmap(uint32_t *page_dir, uint32_t virt) {
+    uint32_t pd_idx = PD_INDEX(virt);
+    uint32_t pt_idx = PT_INDEX(virt);
+    if (!(page_dir[pd_idx] & PAGE_PRESENT)) return;
+    uint32_t *page_table = (uint32_t *)PAGE_ALIGN(page_dir[pd_idx]);
+    page_table[pt_idx] = 0;
+    __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+}
+uint32_t vmm_get_phys(uint32_t *page_dir, uint32_t virt) {
+    uint32_t pd_idx = PD_INDEX(virt);
+    uint32_t pt_idx = PT_INDEX(virt);
+    if (!(page_dir[pd_idx] & PAGE_PRESENT)) return 0;
+    uint32_t *page_table = (uint32_t *)PAGE_ALIGN(page_dir[pd_idx]);
+    if (!(page_table[pt_idx] & PAGE_PRESENT)) return 0;
+    return PAGE_ALIGN(page_table[pt_idx]);
 }
 
 --- linker.ld ---
