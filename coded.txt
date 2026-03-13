@@ -33,7 +33,9 @@ UPTIME_OBJ := $(BUILD)/uptime.o
 KMALLOC_OBJ := $(BUILD)/kmalloc.o
 MEM_OBJ := $(BUILD)/mem.o
 DATE_OBJ := $(BUILD)/date.o
-RTC_OBJ  := $(BUILD)/rtc.o
+RTC_OBJ := $(BUILD)/rtc.o
+SPEAKER_OBJ := $(BUILD)/speaker.o
+BEEP_OBJ := $(BUILD)/beep.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -42,7 +44,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -78,11 +80,15 @@ $(DATE_OBJ): kernel/commands/date.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(RTC_OBJ): kernel/rtc.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+$(SPEAKER_OBJ): kernel/speaker.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(BEEP_OBJ): kernel/commands/beep.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
 .PHONY: run
 run: $(OS_IMG)
-	qemu-system-i386 -drive format=raw,file=$(OS_IMG)
+	qemu-system-i386 -drive format=raw,file=$(OS_IMG) -audiodev coreaudio,id=snd -machine pcspk-audiodev=snd
 .PHONY: clean
 clean:
 	rm -rf $(BUILD)
@@ -202,6 +208,8 @@ void irq1_handler();
 #define KEYBOARD_STATUS_PORT 0x64
 #define KEY_UP 0x01
 #define KEY_DOWN 0x02
+#define KEY_LEFT 0x03
+#define KEY_RIGHT 0x04
 void keyboard_init();
 char keyboard_poll();
 void keyboard_push(char c);
@@ -268,6 +276,15 @@ void shell_register_commands(const command_t *cmds, int count);
 int shell_exec(int argc, char **argv);
 #endif
 
+--- include/speaker.h ---
+#ifndef SPEAKER_H
+#define SPEAKER_H
+typedef unsigned int uint32_t;
+void speaker_play(uint32_t hz);
+void speaker_stop();
+void speaker_beep(uint32_t hz, uint32_t ms);
+#endif
+
 --- include/vga.h ---
 #ifndef VGA_H
 #define VGA_H
@@ -279,7 +296,30 @@ void vga_putchar(char c);
 void vga_print(const char *str);
 void vga_print_int(int n);
 void set_cursor(int row, int column);
+void vga_move_cursor_left();
 #endif
+
+--- kernel/commands/beep.c ---
+#include "speaker.h"
+#include "vga.h"
+static int myatoi(const char *s) {
+    int n = 0;
+    while (*s >= '0' && *s <= '9')
+        n = n * 10 + (*s++ - '0');
+    return n;
+}
+int cmd_beep(int argc, char **argv) {
+    uint32_t hz = 1000;
+    uint32_t ms = 300;
+    if (argc >= 2) hz = myatoi(argv[1]);
+    if (argc >= 3) ms = myatoi(argv[2]);
+    if (hz < 20 || hz > 20000) {
+        vga_print("beep: frequency must be 20-20000 hz\n");
+        return 1;
+    }
+    speaker_beep(hz, ms);
+    return 0;
+}
 
 --- kernel/commands/clear.c ---
 #include "vga.h"
@@ -473,6 +513,7 @@ extern int cmd_help(int argc, char**argv);
 extern int cmd_uptime(int argc, char **argv);
 extern int cmd_mem(int argc, char **argv);
 extern int cmd_date(int argc, char **argv);
+extern int cmd_beep(int argc, char **argv);
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
     { "echo", "Print arguments", cmd_echo },
@@ -480,6 +521,7 @@ static const command_t commands[] = {
     { "uptime", "Show time since boot", cmd_uptime },
     { "mem", "Show bytes in heap", cmd_mem },
     { "date", "Show current date and time", cmd_date },
+    { "beep", "Beep the speaker (freq hz, duration ms)", cmd_beep },
 };
 void kernel_main() {
     vga_clear();
@@ -505,16 +547,42 @@ call_kernel:
 #include "vga.h"
 #define KB_BUF_SIZE 64
 static char scancode_map[128] = {
-    0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
-    0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
-    0,'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
-    'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0,0, 0, ' ',
+    0,
+    0,
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+    '\b',
+    '\t',
+    'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
+    '\n',
+    0,
+    'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'',
+    '`',
+    0,
+    '\\',
+    'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
+    0,
+    0,
+    0,
+    ' ',
 };
 static char scancode_map_shifted[128] = {
-    0, 0, '!', '@', '#', '$', '%', '^', '&', '*', '(' ,')' ,'_', '+', '\b',
-    0, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '{', '}', '\n',
-    0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ':', '"', '~', 0, '|',
-    'z', 'x', 'c', 'v', 'b', 'n', 'm', '<', '>', '?', 0, 0, 0, ' ',
+    0,
+    0,
+    '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+',
+    '\b',
+    '\t',
+    'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}',
+    '\n',
+     0,
+    'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"',
+    '~',
+     0,
+    '|',
+    'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?',
+    0,
+    0,
+    0,
+    ' ',
 };
 static int shift_held = 0;
 static int caps_lock_on = 0;
@@ -539,6 +607,9 @@ char keyboard_poll() {
         e0_prefix = 0;
         if (scancode == 0x48) return KEY_UP;
         if (scancode == 0x50) return KEY_DOWN;
+        if (scancode == 0x4B) return KEY_LEFT;
+        if (scancode == 0x4D) return KEY_RIGHT;
+        if (scancode == 0x53) return '\x7F';
         return 0;
     }
     int released = scancode & 0x80;
@@ -765,17 +836,25 @@ const command_t *registry = 0;
 int registry_len = 0;
 char input_buf[MAX_INPUT];
 int buf_len = 0;
+static int cursor_pos = 0;
 static char *history[HISTORY_MAX];
 static int history_len = 0;
 static int history_head = 0;
-static int history_pos = -1; // -1 = not navigating
-// compares two strings
+static int history_pos = -1;
 static int strcmp(const char *a, const char *b) {
     while (*a && *b && *a == *b) { a++; b++; }
     return *a == *b;
 }
 static int strlen(const char *s) {
     int n = 0; while (s[n]) n++; return n;
+}
+static void redraw_tail() {
+    for (int i = cursor_pos; i < buf_len; i++)
+        vga_putchar(input_buf[i]);
+    vga_putchar(' ');
+    int back = buf_len - cursor_pos + 1;
+    for (int i = 0; i < back; i++)
+        vga_move_cursor_left();
 }
 void shell_register_commands(const command_t *cmds, int count) {
     registry = cmds;
@@ -785,14 +864,12 @@ static int parse(char *buf, char **argv) {
     int argc = 0;
     char *p = buf;
     while (*p) {
-        // skip whitespace
         while (*p == ' ') p++;
         if (!*p) break;
-        // start of token
         argv[argc++] = p;
         if (argc >= MAX_ARGS) break;
         while (*p && *p != ' ') p++;
-        if (*p == ' ') *p++ = '\0'; // null terminate
+        if (*p == ' ') *p++ = '\0';
     }
     return argc;
 }
@@ -808,7 +885,6 @@ int shell_exec(int argc, char **argv) {
     return 1;
 }
 static void history_push(const char *cmd) {
-    // free oldest slot if full
     if (history[history_head])
         kfree(history[history_head]);
     history[history_head] = kstrdup(cmd);
@@ -821,16 +897,16 @@ static char *history_get(int offset) {
     return history[idx];
 }
 static void redraw_line(const char *new_buf, int new_len) {
-    // erase current input with backspaces
+    for (int i = cursor_pos; i < buf_len; i++)
+        vga_putchar(input_buf[i]);
     for (int i = 0; i < buf_len; i++)
         vga_putchar('\b');
-    // print new content
     for (int i = 0; i < new_len; i++)
         vga_putchar(new_buf[i]);
-    // copy into input_buf
     for (int i = 0; i < new_len; i++)
         input_buf[i] = new_buf[i];
     buf_len = new_len;
+    cursor_pos = new_len;
 }
 static void shell_prompt() {
     vga_print("atlas>");
@@ -851,12 +927,8 @@ void shell_run() {
                 shell_exec(argc, argv);
             }
             buf_len = 0;
+            cursor_pos = 0;
             shell_prompt();
-        } else if (c == '\b') {
-            if (buf_len > 0) {
-                buf_len--;
-                vga_putchar('\b');
-            }
         } else if (c == KEY_UP) {
             int next = history_pos + 1;
             char *entry = history_get(next);
@@ -867,7 +939,6 @@ void shell_run() {
         } else if (c == KEY_DOWN) {
             int next = history_pos - 1;
             if (next < 0) {
-                // back to empty line
                 redraw_line("", 0);
                 history_pos = -1;
             } else {
@@ -877,13 +948,81 @@ void shell_run() {
                     redraw_line(entry, strlen(entry));
                 }
             }
+        } else if (c == KEY_LEFT) {
+            if (cursor_pos > 0) {
+                cursor_pos--;
+                vga_move_cursor_left();
+            }
+        } else if (c == KEY_RIGHT) {
+            if (cursor_pos < buf_len) {
+                vga_putchar(input_buf[cursor_pos]);
+                cursor_pos++;
+            }
+        } else if (c == '\b') {
+            if (cursor_pos > 0) {
+                // shift buffer left over the deleted char
+                for (int i = cursor_pos - 1; i < buf_len - 1; i++)
+                    input_buf[i] = input_buf[i + 1];
+                buf_len--;
+                cursor_pos--;
+                vga_move_cursor_left();
+                redraw_tail();
+            }
         } else {
             if (buf_len < MAX_INPUT - 1) {
-                input_buf[buf_len++] = c;
-                vga_putchar(c);
+                // shift buffer right to make room
+                for (int i = buf_len; i > cursor_pos; i--)
+                    input_buf[i] = input_buf[i - 1];
+                input_buf[cursor_pos] = c;
+                buf_len++;
+                cursor_pos++;
+                if (cursor_pos < buf_len) {
+                    vga_putchar(c);
+                    redraw_tail();
+                } else {
+                    vga_putchar(c);
+                }
             }
         }
     }
+}
+
+--- kernel/speaker.c ---
+#include "speaker.h"
+#include "irq.h"
+#define PIT_CHANNEL2 0x42
+#define PIT_CMD 0x43
+#define SPEAKER_PORT 0x61
+#define PIT_CLOCK 1193180
+static inline void outb(unsigned short port, unsigned char val) {
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+static inline unsigned char inb(unsigned short port) {
+    unsigned char val;
+    __asm__ volatile ("inb %1, %0" : "=a"(val) : "Nd"(port));
+    return val;
+}
+void speaker_play(uint32_t hz) {
+    if (hz == 0) return;
+    uint32_t divisor = PIT_CLOCK / hz;
+    outb(PIT_CMD, 0xB6);
+    outb(PIT_CHANNEL2, (unsigned char)(divisor & 0xFF));
+    outb(PIT_CHANNEL2, (unsigned char)((divisor >> 8) & 0xFF));
+    unsigned char val = inb(SPEAKER_PORT);
+    outb(SPEAKER_PORT, val | 0x03);
+}
+void speaker_stop() {
+    // disconnect speaker by clearing bits 0 and 1
+    unsigned char val = inb(SPEAKER_PORT);
+    outb(SPEAKER_PORT, val & ~0x03);
+}
+void speaker_beep(uint32_t hz, uint32_t ms) {
+    uint32_t ticks = (ms * 182) / 10000;
+    if (ticks == 0) ticks = 1;
+    uint32_t start = irq_get_ticks();
+    speaker_play(hz);
+    while (irq_get_ticks() - start < ticks);
+    speaker_stop();
 }
 
 --- kernel/vga.c ---
@@ -980,6 +1119,11 @@ void vga_print_int(int n) {
     }
     for (int j = i - 1; j >= 0; j--)
         vga_putchar(buf[j]);
+}
+void vga_move_cursor_left() {
+    if (cursor_col > 0) cursor_col--;
+    else if (cursor_row > 0) { cursor_row--; cursor_col = VGA_COLS - 1; }
+    vga_set_cursor(cursor_row, cursor_col);
 }
 
 --- linker.ld ---

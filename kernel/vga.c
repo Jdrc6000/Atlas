@@ -102,3 +102,9 @@ void vga_print_int(int n) {
     for (int j = i - 1; j >= 0; j--)
         vga_putchar(buf[j]);
 }
+
+void vga_move_cursor_left() {
+    if (cursor_col > 0) cursor_col--;
+    else if (cursor_row > 0) { cursor_row--; cursor_col = VGA_COLS - 1; }
+    vga_set_cursor(cursor_row, cursor_col);
+}

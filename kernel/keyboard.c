@@ -4,22 +4,47 @@
 #define KB_BUF_SIZE 64
 
 static char scancode_map[128] = {
-    0, 0,'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
-    0,'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
-    0,'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
-    'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0,0, 0, ' ',
+    0,
+    0,
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+    '\b',
+    '\t',
+    'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']',
+    '\n',
+    0,
+    'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'',
+    '`',
+    0,
+    '\\',
+    'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
+    0,
+    0,
+    0,
+    ' ',
 };
 
 static char scancode_map_shifted[128] = {
-    0, 0, '!', '@', '#', '$', '%', '^', '&', '*', '(' ,')' ,'_', '+', '\b',
-    0, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '{', '}', '\n',
-    0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ':', '"', '~', 0, '|',
-    'z', 'x', 'c', 'v', 'b', 'n', 'm', '<', '>', '?', 0, 0, 0, ' ',
+    0,
+    0,
+    '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+',
+    '\b',
+    '\t',
+    'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}',
+    '\n',
+     0,
+    'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"',
+    '~',
+     0,
+    '|',
+    'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?',
+    0,
+    0,
+    0,
+    ' ',
 };
 
 static int shift_held = 0;
 static int caps_lock_on = 0;
-
 static volatile char kb_buf[KB_BUF_SIZE];
 static volatile int kb_head = 0;
 static volatile int kb_tail = 0;
@@ -45,8 +70,13 @@ char keyboard_poll() {
 
     if (e0_prefix) {
         e0_prefix = 0;
+
         if (scancode == 0x48) return KEY_UP;
         if (scancode == 0x50) return KEY_DOWN;
+        if (scancode == 0x4B) return KEY_LEFT;
+        if (scancode == 0x4D) return KEY_RIGHT;
+        if (scancode == 0x53) return '\x7F';
+
         return 0;
     }
 
@@ -58,8 +88,8 @@ char keyboard_poll() {
     if (released) return 0;
 
     char base = scancode_map[key];
-    if (base == 0) return 0;
 
+    if (base == 0) return 0;
     int is_letter = (base >= 'a' && base <= 'z');
     if (is_letter) {
         int uppercase = caps_lock_on ^ shift_held;
