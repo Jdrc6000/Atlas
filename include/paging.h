@@ -8,5 +8,6 @@ typedef unsigned int uint32_t;
 #define PAGE_USER (1 << 2)
 
 void paging_init();
+uint32_t *paging_get_directory();
 
 #endif

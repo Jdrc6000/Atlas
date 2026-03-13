@@ -7,6 +7,7 @@
 #include "rtc.h"
 #include "paging.h"
 #include "pmm.h"
+#include "vmm.h"
 
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
@@ -16,6 +17,7 @@ extern int cmd_mem(int argc, char **argv);
 extern int cmd_date(int argc, char **argv);
 extern int cmd_beep(int argc, char **argv);
 extern int cmd_pmm(int argc, char **argv);
+extern int cmd_vmm(int argc, char **argv);
 
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
@@ -26,6 +28,7 @@ static const command_t commands[] = {
     { "date", "Show current date and time", cmd_date },
     { "beep", "Beep the speaker (freq hz, duration ms)", cmd_beep },
     { "pmm", "Test physical memory manager", cmd_pmm },
+    { "vmm", "Test virtual memory manager", cmd_vmm },
 };
 
 void kernel_main() {

@@ -18,3 +18,7 @@ void paging_init() {
     
     paging_enable(page_directory);
 }
+
+uint32_t *paging_get_directory() {
+    return page_directory;
+}
