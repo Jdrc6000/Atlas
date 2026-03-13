@@ -103,6 +103,12 @@ void vga_print_int(int n) {
         vga_putchar(buf[j]);
 }
 
+void vga_print_hex(uint32_t n) {
+    char digits[] = "0123456789abcdef";
+    for (int i = 28; i >= 0; i -= 4)
+        vga_putchar(digits[(n >> i) & 0xF]);
+}
+
 void vga_move_cursor_left() {
     if (cursor_col > 0) cursor_col--;
     else if (cursor_row > 0) { cursor_row--; cursor_col = VGA_COLS - 1; }

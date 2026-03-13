@@ -5,10 +5,13 @@
 #define VGA_COLS 80
 #define VGA_ROWS 25
 
+typedef unsigned int uint32_t;
+
 void vga_clear();
 void vga_putchar(char c);
 void vga_print(const char *str);
 void vga_print_int(int n);
+void vga_print_hex(uint32_t n);
 void set_cursor(int row, int column);
 void vga_move_cursor_left();
 

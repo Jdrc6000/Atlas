@@ -1,6 +1,6 @@
 --- .gitignore ---
-coder.py
-coded.txt
+/coder.py
+/coded.txt
 
 --- LICENSE ---
 
@@ -116,7 +116,7 @@ start:
 ; BX / memory address buffer
 load_kernel:
     mov bx, KERNEL_OFFSET
-    mov dh, 15  ; number of sectors to load
+    mov dh, 32  ; number of sectors to load
     mov dl, [BOOT_DRIVE]
     mov ah, 0x02
     mov al, dh

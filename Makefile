@@ -30,6 +30,10 @@ DATE_OBJ := $(BUILD)/date.o
 RTC_OBJ := $(BUILD)/rtc.o
 SPEAKER_OBJ := $(BUILD)/speaker.o
 BEEP_OBJ := $(BUILD)/beep.o
+PAGING_OBJ  := $(BUILD)/paging.o
+PAGINGASM_OBJ := $(BUILD)/paging_asm.o
+PMM_OBJ := $(BUILD)/pmm.o
+PMM_CMD_OBJ := $(BUILD)/pmm_cmd.o
 
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
@@ -43,7 +47,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
@@ -101,6 +105,18 @@ $(SPEAKER_OBJ): kernel/speaker.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BEEP_OBJ): kernel/commands/beep.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(PAGING_OBJ): kernel/paging.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(PAGINGASM_OBJ): kernel/paging.asm | $(BUILD)
+	$(ASM) $(ASMFLAGS) $< -o $@
+
+$(PMM_OBJ): kernel/pmm.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(PMM_CMD_OBJ): kernel/commands/pmm.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD):
