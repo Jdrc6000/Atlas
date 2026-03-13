@@ -41,8 +41,8 @@ void irq1_handler() {
 void irq_init() {
     pic_remap(0x20, 0x28);
     pit_set_frequency(TICKS_PER_SEC);
-    idt_set_gate(0x20, (uint32_t)irq0_stub, 0x08, 0x8E); // timer
-    idt_set_gate(0x21, (uint32_t)irq1_stub, 0x08, 0x8E); //keyboard
+    idt_set_gate(0x20, (uint32_t)irq0_stub, 0x08, 0x8E);
+    idt_set_gate(0x21, (uint32_t)irq1_stub, 0x08, 0x8E);
     irq_clear_mask(0);
     irq_clear_mask(1);
     __asm__ volatile ("sti");

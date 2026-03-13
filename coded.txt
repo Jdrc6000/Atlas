@@ -43,6 +43,8 @@ PMM_CMD_OBJ := $(BUILD)/pmm_cmd.o
 VMM_OBJ := $(BUILD)/vmm.o
 VMM_CMD_OBJ := $(BUILD)/vmm_cmd.o
 KSTRING_OBJ := $(BUILD)/kstring.o
+TASK_OBJ := $(BUILD)/task.o
+TASKASM_OBJ := $(BUILD)/task_asm.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -51,7 +53,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -105,6 +107,10 @@ $(VMM_CMD_OBJ): kernel/commands/vmm.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(KSTRING_OBJ): kernel/kstring.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+$(TASK_OBJ): kernel/task.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(TASKASM_OBJ): kernel/task.asm | $(BUILD)
+	$(ASM) $(ASMFLAGS) $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
 .PHONY: run
@@ -343,6 +349,29 @@ void speaker_stop();
 void speaker_beep(uint32_t hz, uint32_t ms);
 #endif
 
+--- include/task.h ---
+#ifndef TASK_H
+#define TASK_H
+typedef unsigned int uint32_t;
+#define MAX_TASKS  2
+#define STACK_SIZE 4096
+typedef enum {
+    TASK_RUNNING,
+    TASK_READY,
+    TASK_DEAD
+} task_state_t;
+typedef struct {
+    uint32_t      esp;
+    uint32_t     *stack;
+    task_state_t  state;
+    int           id;
+} task_t;
+void    task_init();
+task_t *task_create(void (*func)());
+task_t *task_current();
+uint32_t task_schedule(uint32_t current_esp);
+#endif
+
 --- include/vga.h ---
 #ifndef VGA_H
 #define VGA_H
@@ -412,9 +441,9 @@ int cmd_date(int argc, char **argv) {
     (void)argv;
     rtc_time_t t;
     rtc_read(&t);
-    // 20YY-MM-DD HH:MM:SS
-    vga_print("20"); // real dirty
-    print2(t.year);
+    // YY-MM-DD HH:MM:SS
+    int full_year = 2000 + t.year; // i mean, still dirty... but its better
+    vga_print_int(full_year);
     vga_putchar('-');
     print2(t.month);
     vga_putchar('-');
@@ -596,8 +625,8 @@ void irq1_handler() {
 void irq_init() {
     pic_remap(0x20, 0x28);
     pit_set_frequency(TICKS_PER_SEC);
-    idt_set_gate(0x20, (uint32_t)irq0_stub, 0x08, 0x8E); // timer
-    idt_set_gate(0x21, (uint32_t)irq1_stub, 0x08, 0x8E); //keyboard
+    idt_set_gate(0x20, (uint32_t)irq0_stub, 0x08, 0x8E);
+    idt_set_gate(0x21, (uint32_t)irq1_stub, 0x08, 0x8E);
     irq_clear_mask(0);
     irq_clear_mask(1);
     __asm__ volatile ("sti");
@@ -605,19 +634,6 @@ void irq_init() {
 
 --- kernel/isr.asm ---
 [bits 32]
-extern irq0_handler
-extern irq1_handler
-global irq0_stub
-global irq1_stub
-%macro IRQ_STUB 2
-irq%1_stub:
-    pusha  ; save all general purpose registers
-    call irq%2_handler  ; call the C handler
-    popa  ; restore registers
-    iret  ; return from interrupt
-%endmacro
-IRQ_STUB 0, 0
-IRQ_STUB 1, 1
 
 --- kernel/kernel.c ---
 #include "vga.h"
@@ -630,6 +646,7 @@ IRQ_STUB 1, 1
 #include "paging.h"
 #include "pmm.h"
 #include "vmm.h"
+#include "task.h"
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
 extern int cmd_help(int argc, char**argv);
@@ -650,6 +667,16 @@ static const command_t commands[] = {
     { "pmm", "Test physical memory manager", cmd_pmm },
     { "vmm", "Test virtual memory manager", cmd_vmm },
 };
+static void background_task() {
+    uint32_t last = 0;
+    while (1) {
+        uint32_t now = irq_get_ticks();
+        if (now - last >= 500) {
+            last = now;
+            vga_print("[bg] ");
+        }
+    }
+}
 void kernel_main() {
     paging_init();
     pmm_init();
@@ -659,6 +686,8 @@ void kernel_main() {
     irq_init();
     kmalloc_init();
     keyboard_init();
+    task_init();
+    task_create(background_task);
     shell_register_commands(commands, sizeof(commands) / sizeof((commands)[0]));
     shell_run();
 }
@@ -874,12 +903,7 @@ int kstrlen(const char *s) {
 }
 int kstrcmp(const char *a, const char *b) {
     while (*a && *b && *a == *b) { a++; b++; }
-    return *a == *b;
-}
-int kstrncmp(const char *a, const char *b, uint32_t n) {
-    while (n-- && *a && *b && *a == *b) { a++; b++; }
-    if (n == (uint32_t)-1) return 1;
-    return *a == *b;
+    return (*a == '\0' && *b == '\0');
 }
 char *kstrcpy(char *dst, const char *src) {
     char *d = dst;
@@ -1208,6 +1232,14 @@ void shell_run() {
                 vga_move_cursor_left();
                 redraw_tail();
             }
+        } else if (c == '\x7F') {
+            // forward-delete: remove char at cursor_pos
+            if (cursor_pos < buf_len) {
+                for (int i = cursor_pos; i < buf_len - 1; i++)
+                    input_buf[i] = input_buf[i + 1];
+                buf_len--;
+                redraw_tail();
+            }
         } else {
             if (buf_len < MAX_INPUT - 1) {
                 // shift buffer right to make room
@@ -1262,6 +1294,88 @@ void speaker_beep(uint32_t hz, uint32_t ms) {
     speaker_play(hz);
     while (irq_get_ticks() - start < ticks_needed);
     speaker_stop();
+}
+
+--- kernel/task.asm ---
+[bits 32]
+extern task_schedule
+extern irq0_handler
+extern irq1_handler
+global irq0_stub
+global irq1_stub
+irq0_stub:
+    pusha
+    call irq0_handler
+    push esp
+    call task_schedule
+    add  esp, 4
+    mov  esp, eax
+    popa
+    iret
+irq1_stub:
+    pusha
+    call irq1_handler
+    popa
+    iret
+
+--- kernel/task.c ---
+#include "task.h"
+#include "kmalloc.h"
+#include "kstring.h"
+static task_t tasks[MAX_TASKS];
+static int task_count = 0;
+static int current_idx = 0;
+task_t *task_current() {
+    return &tasks[current_idx];
+}
+void task_init() {
+    tasks[0].id = 0;
+    tasks[0].state = TASK_RUNNING;
+    tasks[0].stack = 0;
+    tasks[0].esp = 0;
+    task_count = 1;
+    current_idx = 0;
+}
+task_t *task_create(void (*func)()) {
+    if (task_count >= MAX_TASKS)
+        return 0;
+    task_t *t = &tasks[task_count];
+    t->id = task_count;
+    t->state = TASK_READY;
+    t->stack = (uint32_t *)kmalloc(STACK_SIZE);
+    if (!t->stack)
+        return 0;
+    kmemset(t->stack, 0, STACK_SIZE);
+    uint32_t *sp = (uint32_t *)((char *)t->stack + STACK_SIZE);
+    *--sp = 0x00000202;
+    *--sp = 0x08;
+    *--sp = (uint32_t)func;
+    *--sp = 0; // EAX
+    *--sp = 0; // ECX
+    *--sp = 0; // EDX
+    *--sp = 0; // EBX
+    *--sp = 0; // ESP
+    *--sp = 0; // EBP
+    *--sp = 0; // ESI
+    *--sp = 0; // EDI
+    t->esp = (uint32_t)sp;
+    task_count++;
+    return t;
+}
+uint32_t task_schedule(uint32_t current_esp) {
+    tasks[current_idx].esp = current_esp;
+    tasks[current_idx].state = TASK_READY;
+    int next = current_idx;
+    for (int i = 1; i <= task_count; i++) {
+        int candidate = (current_idx + i) % task_count;
+        if (tasks[candidate].state == TASK_READY) {
+            next = candidate;
+            break;
+        }
+    }
+    tasks[next].state = TASK_RUNNING;
+    current_idx = next;
+    return tasks[next].esp;
 }
 
 --- kernel/vga.c ---

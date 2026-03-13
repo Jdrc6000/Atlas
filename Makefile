@@ -37,6 +37,8 @@ PMM_CMD_OBJ := $(BUILD)/pmm_cmd.o
 VMM_OBJ := $(BUILD)/vmm.o
 VMM_CMD_OBJ := $(BUILD)/vmm_cmd.o
 KSTRING_OBJ := $(BUILD)/kstring.o
+TASK_OBJ := $(BUILD)/task.o
+TASKASM_OBJ := $(BUILD)/task_asm.o
 
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
@@ -50,7 +52,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
@@ -130,6 +132,12 @@ $(VMM_CMD_OBJ): kernel/commands/vmm.c | $(BUILD)
 
 $(KSTRING_OBJ): kernel/kstring.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TASK_OBJ): kernel/task.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TASKASM_OBJ): kernel/task.asm | $(BUILD)
+	$(ASM) $(ASMFLAGS) $< -o $@
 
 $(BUILD):
 	mkdir -p $(BUILD)

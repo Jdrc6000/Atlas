@@ -8,6 +8,7 @@
 #include "paging.h"
 #include "pmm.h"
 #include "vmm.h"
+#include "task.h"
 
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
@@ -31,6 +32,17 @@ static const command_t commands[] = {
     { "vmm", "Test virtual memory manager", cmd_vmm },
 };
 
+static void background_task() {
+    uint32_t last = 0;
+    while (1) {
+        uint32_t now = irq_get_ticks();
+        if (now - last >= 500) {
+            last = now;
+            vga_print("[bg] ");
+        }
+    }
+}
+
 void kernel_main() {
     paging_init();
     pmm_init();
@@ -42,6 +54,9 @@ void kernel_main() {
     irq_init();
     kmalloc_init();
     keyboard_init();
+
+    task_init();
+    task_create(background_task);
 
     shell_register_commands(commands, sizeof(commands) / sizeof((commands)[0]));
     shell_run();
