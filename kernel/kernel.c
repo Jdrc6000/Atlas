@@ -19,6 +19,8 @@ extern int cmd_date(int argc, char **argv);
 extern int cmd_beep(int argc, char **argv);
 extern int cmd_pmm(int argc, char **argv);
 extern int cmd_vmm(int argc, char **argv);
+extern int cmd_ps(int argc, char **argv);
+extern int cmd_kill(int argc, char **argv);
 
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
@@ -30,16 +32,14 @@ static const command_t commands[] = {
     { "beep", "Beep the speaker (freq hz, duration ms)", cmd_beep },
     { "pmm", "Test physical memory manager", cmd_pmm },
     { "vmm", "Test virtual memory manager", cmd_vmm },
+    { "ps", "List tasks", cmd_ps },
+    { "kill", "Kill a task by PID", cmd_kill },
 };
 
 static void background_task() {
-    uint32_t last = 0;
     while (1) {
-        uint32_t now = irq_get_ticks();
-        if (now - last >= 500) {
-            last = now;
-            vga_print("[bg] ");
-        }
+        vga_print("[bg] ");
+        task_sleep(500);
     }
 }
 

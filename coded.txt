@@ -45,6 +45,8 @@ VMM_CMD_OBJ := $(BUILD)/vmm_cmd.o
 KSTRING_OBJ := $(BUILD)/kstring.o
 TASK_OBJ := $(BUILD)/task.o
 TASKASM_OBJ := $(BUILD)/task_asm.o
+PS_OBJ := $(BUILD)/ps.o
+KILL_OBJ := $(BUILD)/kill.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -53,7 +55,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) $(PS_OBJ) $(KILL_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -111,6 +113,10 @@ $(TASK_OBJ): kernel/task.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(TASKASM_OBJ): kernel/task.asm | $(BUILD)
 	$(ASM) $(ASMFLAGS) $< -o $@
+$(PS_OBJ): kernel/commands/ps.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(KILL_OBJ): kernel/commands/kill.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
 .PHONY: run
@@ -353,23 +359,29 @@ void speaker_beep(uint32_t hz, uint32_t ms);
 #ifndef TASK_H
 #define TASK_H
 typedef unsigned int uint32_t;
-#define MAX_TASKS  2
+#define MAX_TASKS  8
 #define STACK_SIZE 4096
 typedef enum {
     TASK_RUNNING,
     TASK_READY,
+    TASK_SLEEPING,
     TASK_DEAD
 } task_state_t;
 typedef struct {
-    uint32_t      esp;
-    uint32_t     *stack;
-    task_state_t  state;
-    int           id;
+    uint32_t esp;
+    uint32_t *stack;
+    task_state_t state;
+    int id;
+    uint32_t sleep_until;
 } task_t;
-void    task_init();
+void task_init();
 task_t *task_create(void (*func)());
 task_t *task_current();
 uint32_t task_schedule(uint32_t current_esp);
+void task_sleep(uint32_t ms);
+int task_kill(int id);
+int task_count_get();
+task_t *task_get(int i);
 #endif
 
 --- include/vga.h ---
@@ -497,6 +509,31 @@ int cmd_help(int argc, char **argv) {
     return 0;
 }
 
+--- kernel/commands/kill.c ---
+#include "vga.h"
+#include "task.h"
+static int myatoi(const char *s) {
+    int n = 0;
+    while (*s >= '0' && *s <= '9')
+        n = n * 10 + (*s++ - '0');
+    return n;
+}
+int cmd_kill(int argc, char **argv) {
+    if (argc < 2) {
+        vga_print("usage: kill <pid>\n");
+        return 1;
+    }
+    int id = myatoi(argv[1]);
+    if (task_kill(id) == 0) {
+        vga_print("killed task ");
+        vga_print_int(id);
+        vga_putchar('\n');
+    } else {
+        vga_print("kill: no such task (or can't kill task 0)\n");
+    }
+    return 0;
+}
+
 --- kernel/commands/mem.c ---
 #include "vga.h"
 #include "kmalloc.h"
@@ -521,6 +558,33 @@ int cmd_pmm(int argc, char **argv) {
     pmm_free(a);
     uint32_t c = pmm_alloc();
     vga_print("after free+alloc: 0x"); vga_print_hex(c); vga_putchar('\n');
+    return 0;
+}
+
+--- kernel/commands/ps.c ---
+#include "vga.h"
+#include "task.h"
+static const char *state_name(task_state_t s) {
+    switch (s) {
+        case TASK_RUNNING: return "running";
+        case TASK_READY: return "ready";
+        case TASK_SLEEPING: return "sleeping";
+        case TASK_DEAD: return "dead";
+        default: return "?";
+    }
+}
+int cmd_ps(int argc, char **argv) {
+    (void)argc; (void)argv;
+    vga_print("PID  STATE\n");
+    vga_print("---  --------\n");
+    int count = task_count_get();
+    for (int i = 0; i < count; i++) {
+        task_t *t = task_get(i);
+        vga_print_int(t->id);
+        vga_print("    ");
+        vga_print(state_name(t->state));
+        vga_putchar('\n');
+    }
     return 0;
 }
 
@@ -656,6 +720,8 @@ extern int cmd_date(int argc, char **argv);
 extern int cmd_beep(int argc, char **argv);
 extern int cmd_pmm(int argc, char **argv);
 extern int cmd_vmm(int argc, char **argv);
+extern int cmd_ps(int argc, char **argv);
+extern int cmd_kill(int argc, char **argv);
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
     { "echo", "Print arguments", cmd_echo },
@@ -666,15 +732,13 @@ static const command_t commands[] = {
     { "beep", "Beep the speaker (freq hz, duration ms)", cmd_beep },
     { "pmm", "Test physical memory manager", cmd_pmm },
     { "vmm", "Test virtual memory manager", cmd_vmm },
+    { "ps", "List tasks", cmd_ps },
+    { "kill", "Kill a task by PID", cmd_kill },
 };
 static void background_task() {
-    uint32_t last = 0;
     while (1) {
-        uint32_t now = irq_get_ticks();
-        if (now - last >= 500) {
-            last = now;
-            vga_print("[bg] ");
-        }
+        vga_print("[bg] ");
+        task_sleep(500);
     }
 }
 void kernel_main() {
@@ -1322,9 +1386,12 @@ irq1_stub:
 #include "task.h"
 #include "kmalloc.h"
 #include "kstring.h"
+#include "irq.h"
 static task_t tasks[MAX_TASKS];
 static int task_count = 0;
 static int current_idx = 0;
+int task_count_get() { return task_count; }
+task_t *task_get(int i) { return &tasks[i]; }
 task_t *task_current() {
     return &tasks[current_idx];
 }
@@ -1333,22 +1400,22 @@ void task_init() {
     tasks[0].state = TASK_RUNNING;
     tasks[0].stack = 0;
     tasks[0].esp = 0;
+    tasks[0].sleep_until = 0;
     task_count = 1;
     current_idx = 0;
 }
 task_t *task_create(void (*func)()) {
-    if (task_count >= MAX_TASKS)
-        return 0;
+    if (task_count >= MAX_TASKS) return 0;
     task_t *t = &tasks[task_count];
     t->id = task_count;
     t->state = TASK_READY;
+    t->sleep_until = 0;
     t->stack = (uint32_t *)kmalloc(STACK_SIZE);
-    if (!t->stack)
-        return 0;
+    if (!t->stack) return 0;
     kmemset(t->stack, 0, STACK_SIZE);
     uint32_t *sp = (uint32_t *)((char *)t->stack + STACK_SIZE);
-    *--sp = 0x00000202;
-    *--sp = 0x08;
+    *--sp = 0x00000202; // EFLAGS
+    *--sp = 0x08; // CS
     *--sp = (uint32_t)func;
     *--sp = 0; // EAX
     *--sp = 0; // ECX
@@ -1363,8 +1430,16 @@ task_t *task_create(void (*func)()) {
     return t;
 }
 uint32_t task_schedule(uint32_t current_esp) {
+    uint32_t now = irq_get_ticks();
     tasks[current_idx].esp = current_esp;
-    tasks[current_idx].state = TASK_READY;
+    if (tasks[current_idx].state == TASK_RUNNING)
+        tasks[current_idx].state = TASK_READY;
+    // wake any sleeping tasks whose timer has expired
+    for (int i = 0; i < task_count; i++) {
+        if (tasks[i].state == TASK_SLEEPING && now >= tasks[i].sleep_until)
+            tasks[i].state = TASK_READY;
+    }
+    // round-robin over ready tasks
     int next = current_idx;
     for (int i = 1; i <= task_count; i++) {
         int candidate = (current_idx + i) % task_count;
@@ -1376,6 +1451,25 @@ uint32_t task_schedule(uint32_t current_esp) {
     tasks[next].state = TASK_RUNNING;
     current_idx = next;
     return tasks[next].esp;
+}
+void task_sleep(uint32_t ms) {
+    uint32_t ticks = (ms * TICKS_PER_SEC) / 1000;
+    if (ticks == 0) ticks = 1;
+    tasks[current_idx].sleep_until = irq_get_ticks() + ticks;
+    tasks[current_idx].state = TASK_SLEEPING;
+    // yield: spin until the scheduler wakes us
+    while (tasks[current_idx].state == TASK_SLEEPING)
+        __asm__ volatile("hlt");
+}
+int task_kill(int id) {
+    for (int i = 0; i < task_count; i++) {
+        if (tasks[i].id == id) {
+            if (i == 0) return -1; // can't kill kernel task
+            tasks[i].state = TASK_DEAD;
+            return 0;
+        }
+    }
+    return -1; // not found
 }
 
 --- kernel/vga.c ---
