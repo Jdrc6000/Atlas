@@ -10,6 +10,7 @@
 #include "vmm.h"
 #include "task.h"
 #include "ramfs.h"
+#include "gdt.h"
 
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
@@ -25,6 +26,7 @@ extern int cmd_kill(int argc, char **argv);
 extern int cmd_ls(int argc, char **argv);
 extern int cmd_cat(int argc, char **argv);
 extern int cmd_write(int argc, char **argv);
+extern int cmd_play(int argc, char **argv);
 
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
@@ -41,6 +43,7 @@ static const command_t commands[] = {
     { "ls", "List files", cmd_ls },
     { "cat", "Print file contents", cmd_cat },
     { "write", "Write text to a file", cmd_write },
+    { "play", "Play a song (tetris/mario/birthday/imperial)", cmd_play },
 };
 
 /*static void background_task() {
@@ -51,6 +54,7 @@ static const command_t commands[] = {
 }*/
 
 void kernel_main() {
+    gdt_init();
     paging_init();
     pmm_init();
 

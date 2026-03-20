@@ -45,6 +45,10 @@ RAMFS_OBJ := $(BUILD)/ramfs.o
 LS_OBJ := $(BUILD)/ls.o
 CAT_OBJ := $(BUILD)/cat.o
 WRITE_OBJ := $(BUILD)/write.o
+GDT_OBJ := $(BUILD)/gdt.o
+GDTASM_OBJ := $(BUILD)/gdt_asm.o
+MUSIC_OBJ := $(BUILD)/music.o
+PLAY_OBJ := $(BUILD)/play.o
 
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
@@ -58,7 +62,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) $(PS_OBJ) $(KILL_OBJ) $(RAMFS_OBJ) $(LS_OBJ) $(CAT_OBJ) $(WRITE_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) $(PS_OBJ) $(KILL_OBJ) $(RAMFS_OBJ) $(LS_OBJ) $(CAT_OBJ) $(WRITE_OBJ) $(GDT_OBJ) $(GDTASM_OBJ) $(MUSIC_OBJ) $(PLAY_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
@@ -163,12 +167,24 @@ $(CAT_OBJ): kernel/commands/cat.c | $(BUILD)
 $(WRITE_OBJ): kernel/commands/write.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(GDT_OBJ): kernel/gdt.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(GDTASM_OBJ): kernel/gdt.asm | $(BUILD)
+	$(ASM) $(ASMFLAGS) $< -o $@
+
+$(MUSIC_OBJ): kernel/music.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(PLAY_OBJ): kernel/commands/play.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD):
 	mkdir -p $(BUILD)
 
 .PHONY: run
 run: $(OS_IMG)
-	qemu-system-i386 -drive format=raw,file=$(OS_IMG) -audiodev coreaudio,id=snd -machine pcspk-audiodev=snd -no-reboot -d int,cpu_reset
+	qemu-system-i386 -drive format=raw,file=$(OS_IMG) -audiodev coreaudio,id=snd -machine pcspk-audiodev=snd -no-reboot
 
 .PHONY: clean
 clean:

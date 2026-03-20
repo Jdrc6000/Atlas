@@ -3,7 +3,7 @@
 
 static void print_entry(const char *name, uint32_t size) {
     vga_print(name);
-    vga_print("\t");
+    vga_print("    ");
     vga_print_int(size);
     vga_print(" bytes\n");
 }
