@@ -95,7 +95,8 @@ static void shell_prompt() {
     vga_print("atlas>");
 }
 
-void shell_run() {
+void shell_run()
+{
     shell_prompt();
     while (1) {
         if (!keyboard_haschar()) continue;

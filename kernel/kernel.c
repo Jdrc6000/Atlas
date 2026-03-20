@@ -9,6 +9,7 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "task.h"
+#include "ramfs.h"
 
 extern int cmd_clear(int argc, char **argv);
 extern int cmd_echo(int argc, char **argv);
@@ -21,6 +22,9 @@ extern int cmd_pmm(int argc, char **argv);
 extern int cmd_vmm(int argc, char **argv);
 extern int cmd_ps(int argc, char **argv);
 extern int cmd_kill(int argc, char **argv);
+extern int cmd_ls(int argc, char **argv);
+extern int cmd_cat(int argc, char **argv);
+extern int cmd_write(int argc, char **argv);
 
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
@@ -34,14 +38,17 @@ static const command_t commands[] = {
     { "vmm", "Test virtual memory manager", cmd_vmm },
     { "ps", "List tasks", cmd_ps },
     { "kill", "Kill a task by PID", cmd_kill },
+    { "ls", "List files", cmd_ls },
+    { "cat", "Print file contents", cmd_cat },
+    { "write", "Write text to a file", cmd_write },
 };
 
-static void background_task() {
+/*static void background_task() {
     while (1) {
-        vga_print("[bg] ");
+        vga_print(".");
         task_sleep(500);
     }
-}
+}*/
 
 void kernel_main() {
     paging_init();
@@ -54,9 +61,12 @@ void kernel_main() {
     irq_init();
     kmalloc_init();
     keyboard_init();
+    ramfs_init();
 
     task_init();
-    task_create(background_task);
+    //task_create(background_task);
+
+    task_set_ready();
 
     shell_register_commands(commands, sizeof(commands) / sizeof((commands)[0]));
     shell_run();

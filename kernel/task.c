@@ -6,9 +6,11 @@
 static task_t tasks[MAX_TASKS];
 static int task_count = 0;
 static int current_idx = 0;
+static int scheduler_ready = 0;
 
 int task_count_get() { return task_count; }
 task_t *task_get(int i) { return &tasks[i]; }
+void task_set_ready() { scheduler_ready = 1; }
 
 task_t *task_current() {
     return &tasks[current_idx];
@@ -55,6 +57,8 @@ task_t *task_create(void (*func)()) {
 }
 
 uint32_t task_schedule(uint32_t current_esp) {
+    if (!scheduler_ready) return current_esp;
+
     uint32_t now = irq_get_ticks();
 
     tasks[current_idx].esp = current_esp;

@@ -23,7 +23,7 @@ start:
 ; BX / memory address buffer
 load_kernel:
     mov bx, KERNEL_OFFSET
-    mov dh, 32  ; number of sectors to load
+    mov dh, 128  ; number of sectors to load
     mov dl, [BOOT_DRIVE]
 
     mov ah, 0x02

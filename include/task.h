@@ -29,5 +29,6 @@ void task_sleep(uint32_t ms);
 int task_kill(int id);
 int task_count_get();
 task_t *task_get(int i);
+void task_set_ready();
 
 #endif

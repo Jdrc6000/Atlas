@@ -9,15 +9,11 @@ global irq1_stub
 
 irq0_stub:
     pusha
-
     call irq0_handler
-
     push esp
     call task_schedule
     add  esp, 4
-
     mov  esp, eax
-
     popa
     iret
 

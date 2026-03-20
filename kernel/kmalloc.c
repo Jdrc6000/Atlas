@@ -34,11 +34,11 @@ void *kmalloc(uint32_t size) {
     if (!size) return 0;
     size = ALIGN4(size);
 
-    /* walk block list, first-fit */
+    // walk block list, first-fit
     block_header_t *b = first;
     while (b) {
         if (b->free && b->size >= size) {
-            /* optionally split if leftover is big enough */
+            // optionally split if leftover is big enough
             if (b->size >= size + HEADER_SIZE + 4) {
                 block_header_t *split =
                     (block_header_t *)((char *)b + HEADER_SIZE + size);
@@ -54,10 +54,10 @@ void *kmalloc(uint32_t size) {
         b = b->next;
     }
 
-    /* no fitting free block — bump allocate a new one */
+    // no fitting free block - bump allocate a new one
     if ((uint32_t)(heap_ptr + HEADER_SIZE + size) >
         (uint32_t)(heap_base + HEAP_MAX))
-        return 0;   /* OOM */
+        return 0;
 
     b        = (block_header_t *)heap_ptr;
     b->size  = size;
@@ -65,7 +65,7 @@ void *kmalloc(uint32_t size) {
     b->next  = 0;
     heap_ptr += HEADER_SIZE + size;
 
-    /* append to block list */
+    // append to block list
     if (!first) {
         first = b;
     } else {
