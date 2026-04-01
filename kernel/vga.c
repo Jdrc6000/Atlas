@@ -93,12 +93,27 @@ void vga_print(const char *str) {
 
 void vga_print_int(int n) {
     if (n == 0) { vga_putchar('0'); return; }
+    if (n < 0) {
+        vga_putchar('-');
+        unsigned int u = (unsigned int)(-(n + 1)) + 1;
+        char buf[16];
+        int i = 0;
+        while (u > 0) {
+            buf[i++] = '0' + (u % 10);
+            u /= 10;
+        }
+        for (int j = i - 1; j >= 0; j--)
+            vga_putchar(buf[j]);
+        return;
+    }
+
     char buf[16];
     int i = 0;
     while (n > 0) {
         buf[i++] = '0' + (n % 10);
         n /= 10;
     }
+    
     for (int j = i - 1; j >= 0; j--)
         vga_putchar(buf[j]);
 }

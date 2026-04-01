@@ -27,6 +27,7 @@ extern int cmd_ls(int argc, char **argv);
 extern int cmd_cat(int argc, char **argv);
 extern int cmd_write(int argc, char **argv);
 extern int cmd_play(int argc, char **argv);
+extern int cmd_reboot(int argc, char **argv);
 
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
@@ -44,6 +45,7 @@ static const command_t commands[] = {
     { "cat", "Print file contents", cmd_cat },
     { "write", "Write text to a file", cmd_write },
     { "play", "Play a song (tetris/mario/birthday/imperial)", cmd_play },
+    { "reboot",  "Reboot the system", cmd_reboot },
 };
 
 /*static void background_task() {
