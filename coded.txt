@@ -56,6 +56,8 @@ CAT_OBJ := $(BUILD)/cat.o
 WRITE_OBJ := $(BUILD)/write.o
 GDT_OBJ := $(BUILD)/gdt.o
 GDTASM_OBJ := $(BUILD)/gdt_asm.o
+MUSIC_OBJ := $(BUILD)/music.o
+PLAY_OBJ := $(BUILD)/play.o
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
 .PHONY: all
@@ -64,7 +66,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) $(PS_OBJ) $(KILL_OBJ) $(RAMFS_OBJ) $(LS_OBJ) $(CAT_OBJ) $(WRITE_OBJ) $(GDT_OBJ) $(GDTASM_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) $(PS_OBJ) $(KILL_OBJ) $(RAMFS_OBJ) $(LS_OBJ) $(CAT_OBJ) $(WRITE_OBJ) $(GDT_OBJ) $(GDTASM_OBJ) $(MUSIC_OBJ) $(PLAY_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -138,6 +140,10 @@ $(GDT_OBJ): kernel/gdt.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(GDTASM_OBJ): kernel/gdt.asm | $(BUILD)
 	$(ASM) $(ASMFLAGS) $< -o $@
+$(MUSIC_OBJ): kernel/music.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(PLAY_OBJ): kernel/commands/play.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD):
 	mkdir -p $(BUILD)
 .PHONY: run
@@ -304,6 +310,63 @@ char *kstrncpy(char *dst, const char *src, uint32_t n);
 void *kmemset(void *dst, int val, uint32_t n);
 void *kmemcpy(void *dst, const void *src, uint32_t n);
 int kmemcmp(const void *a, const void *b, uint32_t n);
+#endif
+
+--- include/music.h ---
+#ifndef MUSIC_H
+#define MUSIC_H
+typedef unsigned int uint32_t;
+typedef struct {
+    uint32_t freq;
+    uint32_t ms;
+} note_t;
+void music_play(const note_t *song, uint32_t len);
+#endif
+
+--- include/notes.h ---
+#ifndef NOTES_H
+#define NOTES_H
+// Rests
+#define REST 0
+// Octave 3
+#define B3 247
+// Octave 4
+#define C4 262
+#define CS4 277
+#define D4 294
+#define DS4 311
+#define E4 330
+#define F4 349
+#define FS4 370
+#define G4 392
+#define GS4 415
+#define A4 440
+#define AS4 466
+#define B4 494
+// Octave 5
+#define C5 523
+#define CS5 554
+#define D5 587
+#define DS5 622
+#define E5 659
+#define F5 698
+#define FS5 740
+#define G5 784
+#define GS5 831
+#define A5 880
+#define AS5 932
+#define B5 988
+// Octave 6
+#define C6 1047
+#define CS6 1109
+#define D6 1175
+#define DS6 1245
+#define E6 1319
+#define F6 1397
+#define FS6 1480
+#define G6 1568
+#define GS6 1661
+#define A6 1760
 #endif
 
 --- include/paging.h ---
@@ -635,6 +698,269 @@ int cmd_mem(int argc, char **argv) {
     return 0;
 }
 
+--- kernel/commands/play.c ---
+#include "music.h"
+#include "notes.h"
+#include "vga.h"
+#include "kstring.h"
+#define N(f, d) {f, d}
+#define WH 1600 // whole
+#define HF 800 // half
+#define QT 400 // quarter
+#define ET 200 // eighth
+#define ST 100 // sixteenth
+#define DQT 600 // dotted quarter (quarter + eighth)
+#define DHF 1200 // dotted half
+// Tetris Theme
+static const note_t tetris[] = {
+    N(E5, QT),
+    N(B4, ET),
+    N(C5, ET),
+    N(D5, QT),
+    N(C5, ET),
+    N(B4, ET),
+    N(A4, QT),
+    N(A4, ET),
+    N(C5, ET),
+    N(E5, QT),
+    N(D5, ET),
+    N(C5, ET),
+    N(B4, DQT),
+    N(C5, ET),
+    N(D5, QT),
+    N(E5, QT),
+    N(C5, QT),
+    N(A4, QT),
+    N(A4, HF),
+    N(REST, ET),
+    N(D5, DQT),
+    N(F5, ET),
+    N(A5, QT),
+    N(G5, ET),
+    N(F5, ET),
+    N(E5, DQT),
+    N(C5, ET),
+    N(E5, QT),
+    N(D5, ET),
+    N(C5, ET),
+    N(B4, QT),
+    N(B4, ET),
+    N(C5, ET),
+    N(D5, QT),
+    N(E5, QT),
+    N(C5, QT),
+    N(A4, QT),
+    N(A4, QT),
+    N(REST, QT),
+    // repeat
+    N(E5, QT),
+    N(B4, ET),
+    N(C5, ET),
+    N(D5, QT),
+    N(C5, ET),
+    N(B4, ET),
+    N(A4, QT),
+    N(A4, ET),
+    N(C5, ET),
+    N(E5, QT),
+    N(D5, ET),
+    N(C5, ET),
+    N(B4, DQT),
+    N(C5, ET),
+    N(D5, QT),
+    N(E5, QT),
+    N(C5, QT),
+    N(A4, QT),
+    N(A4, HF),
+};
+// Super Mario Bros Theme
+static const note_t mario[] = {
+    N(E5, ET),
+    N(E5, ET),
+    N(REST, ET),
+    N(E5, ET),
+    N(REST, ET),
+    N(C5, ET),
+    N(E5, QT),
+    N(G5, QT),
+    N(REST, QT),
+    N(G4, QT),
+    N(REST, QT),
+    N(C5, DQT),
+    N(G4, ET),
+    N(REST, QT),
+    N(E4, DQT),
+    N(A4, QT),
+    N(B4, QT),
+    N(AS4, ET),
+    N(A4, QT),
+    N(G4, ET),
+    N(E5, ET),
+    N(G5, ET),
+    N(A5, QT),
+    N(F5, ET),
+    N(G5, ET),
+    N(REST, ET),
+    N(E5, QT),
+    N(C5, ET),
+    N(D5, ET),
+    N(B4, DQT),
+    N(C5, DQT),
+    N(G4, ET),
+    N(REST, QT),
+    N(E4, DQT),
+    N(A4, QT),
+    N(B4, QT),
+    N(AS4, ET),
+    N(A4, QT),
+    N(G4, ET),
+    N(E5, ET),
+    N(G5, ET),
+    N(A5, QT),
+    N(F5, ET),
+    N(G5, ET),
+    N(REST, ET),
+    N(E5, QT),
+    N(C5, ET),
+    N(D5, ET),
+    N(B4, DQT),
+};
+// Happy Birthday
+static const note_t happy_birthday[] = {
+    N(C4, ET),
+    N(C4, ST),
+    N(D4, QT),
+    N(C4, QT),
+    N(F4, QT),
+    N(E4, HF),
+    N(C4, ET),
+    N(C4, ST),
+    N(D4, QT),
+    N(C4, QT),
+    N(G4, QT),
+    N(F4, HF),
+    N(C4, ET),
+    N(C4, ST),
+    N(C5, QT),
+    N(A4, QT),
+    N(F4, QT),
+    N(E4, QT),
+    N(D4, QT),
+    N(AS4, ET),
+    N(AS4, ST),
+    N(A4, QT),
+    N(F4, QT),
+    N(G4, QT),
+    N(F4, HF),
+};
+// Imperial March
+static const note_t imperial_march[] = {
+    N(A4, QT),
+    N(A4, QT),
+    N(A4, QT),
+    N(F4, ET),
+    N(C5, ET),
+    N(A4, QT),
+    N(F4, ET),
+    N(C5, ET),
+    N(A4, HF),
+    N(E5, QT),
+    N(E5, QT),
+    N(E5, QT),
+    N(F5, ET),
+    N(C5, ET),
+    N(GS4, QT),
+    N(F4, ET),
+    N(C5, ET),
+    N(A4, HF),
+    N(A5, QT),
+    N(A4, ET),
+    N(A4, ET),
+    N(A5, QT),
+    N(GS5, ET),
+    N(G5, ET),
+    N(FS5, ET),
+    N(F5, ET),
+    N(FS5, ET),
+    N(REST, ET),
+    N(AS4, ET),
+    N(DS5, QT),
+    N(D5, ET),
+    N(CS5, ET),
+    N(C5, ET),
+    N(B4, ET),
+    N(C5, ET),
+    N(REST, ET),
+    N(F4, ET),
+    N(GS4, QT),
+    N(F4, ET),
+    N(A4, ET),
+    N(C5, QT),
+    N(A4, ET),
+    N(C5, ET),
+    N(E5, HF),
+    N(A5, QT),
+    N(A4, ET),
+    N(A4, ET),
+    N(A5, QT),
+    N(GS5, ET),
+    N(G5, ET),
+    N(FS5, ET),
+    N(F5, ET),
+    N(FS5, ET),
+    N(REST, ET),
+    N(AS4, ET),
+    N(DS5, QT),
+    N(D5, ET),
+    N(CS5, ET),
+    N(C5, ET),
+    N(B4, ET),
+    N(C5, ET),
+    N(REST, ET),
+    N(F4, ET),
+    N(GS4, QT),
+    N(F4, ET),
+    N(C5, ET),
+    N(A4, QT),
+    N(F4, ET),
+    N(C5, ET),
+    N(A4, HF),
+};
+typedef struct {
+    const char *name;
+    const note_t *notes;
+    unsigned int len;
+} song_t;
+#define SONG(name, arr) {name, arr, sizeof(arr) / sizeof((arr)[0])}
+static const song_t songs[] = {
+    SONG("tetris", tetris),
+    SONG("mario", mario),
+    SONG("birthday", happy_birthday),
+    SONG("imperial", imperial_march),
+};
+#define NUM_SONGS (sizeof(songs) / sizeof(songs[0]))
+int cmd_play(int argc, char **argv) {
+    if (argc < 2) {
+        vga_print("usage: play <song>\n");
+        vga_print("songs: tetris, mario, birthday, imperial\n");
+        return 1;
+    }
+    for (unsigned int i = 0; i < NUM_SONGS; i++) {
+        if (kstrcmp(songs[i].name, argv[1]))
+        {
+            vga_print("playing: ");
+            vga_print(songs[i].name);
+            vga_putchar('\n');
+            music_play(songs[i].notes, songs[i].len);
+            return 0;
+        }
+    }
+    vga_print("play: unknown song '");
+    vga_print(argv[1]);
+    vga_print("'\nsongs: tetris, mario, birthday, imperial\n");
+    return 1;
+}
+
 --- kernel/commands/pmm.c ---
 #include "vga.h"
 #include "pmm.h"
@@ -902,6 +1228,7 @@ extern int cmd_kill(int argc, char **argv);
 extern int cmd_ls(int argc, char **argv);
 extern int cmd_cat(int argc, char **argv);
 extern int cmd_write(int argc, char **argv);
+extern int cmd_play(int argc, char **argv);
 static const command_t commands[] = {
     { "clear", "Clear the screen", cmd_clear },
     { "echo", "Print arguments", cmd_echo },
@@ -917,6 +1244,7 @@ static const command_t commands[] = {
     { "ls", "List files", cmd_ls },
     { "cat", "Print file contents", cmd_cat },
     { "write", "Write text to a file", cmd_write },
+    { "play", "Play a song (tetris/mario/birthday/imperial)", cmd_play },
 };
 /*static void background_task() {
     while (1) {
@@ -1185,6 +1513,31 @@ int kmemcmp(const void *a, const void *b, uint32_t n) {
         pa++; pb++;
     }
     return 0;
+}
+
+--- kernel/music.c ---
+#include "music.h"
+#include "speaker.h"
+#include "irq.h"
+static void music_wait(uint32_t ms) {
+    uint32_t ticks_needed = (ms * TICKS_PER_SEC) / 1000;
+    if (ticks_needed == 0)
+        ticks_needed = 1;
+    uint32_t start = irq_get_ticks();
+    while (irq_get_ticks() - start < ticks_needed) ;
+}
+void music_play(const note_t *song, uint32_t len) {
+    for (uint32_t i = 0; i < len; i++) {
+        if (song[i].freq == 0)
+        {
+            speaker_stop();
+            music_wait(song[i].ms);
+        } else {
+            speaker_beep(song[i].freq, song[i].ms);
+        }
+        speaker_stop();
+        music_wait(20);
+    }
 }
 
 --- kernel/paging.asm ---

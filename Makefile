@@ -49,6 +49,7 @@ GDT_OBJ := $(BUILD)/gdt.o
 GDTASM_OBJ := $(BUILD)/gdt_asm.o
 MUSIC_OBJ := $(BUILD)/music.o
 PLAY_OBJ := $(BUILD)/play.o
+ISR_C_OBJ := $(BUILD)/isr_c.o
 
 KERNEL_BIN := $(BUILD)/kernel.bin
 OS_IMG := $(BUILD)/os.img
@@ -62,7 +63,7 @@ $(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
-$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) $(PS_OBJ) $(KILL_OBJ) $(RAMFS_OBJ) $(LS_OBJ) $(CAT_OBJ) $(WRITE_OBJ) $(GDT_OBJ) $(GDTASM_OBJ) $(MUSIC_OBJ) $(PLAY_OBJ) | $(BUILD)
+$(KERNEL_BIN): $(ENTRY_OBJ) $(KERNEL_OBJ) $(VGA_OBJ) $(KEYBOARD_OBJ) $(SHELL_OBJ) $(CLEAR_OBJ) $(ECHO_OBJ) $(HELP_OBJ) $(IDT_OBJ) $(PIC_OBJ) $(IRQ_OBJ) $(ISR_OBJ) $(UPTIME_OBJ) $(KMALLOC_OBJ) $(MEM_OBJ) $(DATE_OBJ) $(RTC_OBJ) $(SPEAKER_OBJ) $(BEEP_OBJ) $(PAGING_OBJ) $(PAGINGASM_OBJ) $(PMM_OBJ) $(PMM_CMD_OBJ) $(VMM_OBJ) $(VMM_CMD_OBJ) $(KSTRING_OBJ) $(TASK_OBJ) $(TASKASM_OBJ) $(PS_OBJ) $(KILL_OBJ) $(RAMFS_OBJ) $(LS_OBJ) $(CAT_OBJ) $(WRITE_OBJ) $(GDT_OBJ) $(GDTASM_OBJ) $(MUSIC_OBJ) $(PLAY_OBJ) $(ISR_C_OBJ) | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 $(VGA_OBJ): kernel/vga.c | $(BUILD)
@@ -177,6 +178,9 @@ $(MUSIC_OBJ): kernel/music.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(PLAY_OBJ): kernel/commands/play.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(ISR_C_OBJ): kernel/isr.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD):
